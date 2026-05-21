@@ -42,6 +42,13 @@ describe("symbol normalization", () => {
     expect(results.map((item) => item.normalizedSymbol)).toContain("601728.SH");
   });
 
+  it("resolves common HK and A-share symbols to company names", () => {
+    expect(securityFromSymbol("000001.SH").name).toBe("上证指数");
+    expect(securityFromSymbol("1810.HK").name).toBe("小米集团-W");
+    expect(securityFromSymbol("000725.SZ").name).toBe("京东方A");
+    expect(securityFromSymbol("002352.SZ").name).toBe("顺丰控股");
+  });
+
   it("searches securities by Chinese aliases for US stocks", () => {
     expect(searchKnownSecurities("特斯拉").map((item) => item.normalizedSymbol)).toContain("TSLA.US");
     expect(searchKnownSecurities("谷歌").map((item) => item.normalizedSymbol)).toContain("GOOGL.US");

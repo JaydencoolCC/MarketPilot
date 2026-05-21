@@ -11,7 +11,6 @@ import {
   Save,
   ShieldCheck,
   TestTube2,
-  Trash2,
   Wifi,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -97,7 +96,11 @@ export function SettingsCenter({ initialEmailSetting, initialIntegrations }: Set
         ) : null}
 
         <section id="email">
-          <EmailSettingsForm initialSetting={initialEmailSetting} />
+          <EmailSettingsForm
+            initialSetting={initialEmailSetting}
+            integration={emailIntegration}
+            onProviderUpdate={updateIntegration}
+          />
         </section>
 
         <section id="market" className="grid gap-4 md:grid-cols-2">
@@ -120,7 +123,7 @@ export function SettingsCenter({ initialEmailSetting, initialIntegrations }: Set
                 API Key 保存前会用 AES-GCM 加密。前端只拿到脱敏状态，不会拿到原始密钥；日志、测试和文档也不能写入真实密钥。
               </p>
               <p className="mt-2 text-sm leading-6 text-muted">
-                若要允许页面保存密钥，请在环境变量里配置 <code className="rounded bg-surface px-1">SETTINGS_ENCRYPTION_KEY</code>。
+                本地开发会自动创建加密密钥文件；生产部署建议通过环境变量配置 <code className="rounded bg-surface px-1">SETTINGS_ENCRYPTION_KEY</code>。
               </p>
             </div>
           </div>
@@ -187,10 +190,12 @@ function ModelSettingsCard({
   const [baseUrl, setBaseUrl] = useState(integration.baseUrl ?? "");
   const [modelName, setModelName] = useState(integration.modelName ?? "");
   const [apiKey, setApiKey] = useState("");
+  const [editingApiKey, setEditingApiKey] = useState(false);
   const [message, setMessage] = useState(integration.statusMessage);
   const [busy, setBusy] = useState(false);
 
   const canSaveKey = integration.encryptionConfigured;
+  const savedKeyDisplay = integration.secretConfigured ? "********" : "";
   const keyHint = useMemo(() => {
     if (!integration.secretConfigured) return "还没有保存 API Key";
     return integration.secretPreview ? `已保存 ${integration.secretPreview}` : "已通过环境变量配置";
@@ -198,8 +203,8 @@ function ModelSettingsCard({
 
   async function saveModel(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (apiKey.trim() && !canSaveKey) {
-      setMessage("缺少 SETTINGS_ENCRYPTION_KEY，暂时不能保存 API Key。");
+    if ((editingApiKey || !integration.secretConfigured) && !apiKey.trim()) {
+      setMessage("请输入 API Key 后再保存。");
       return;
     }
 
@@ -211,7 +216,7 @@ function ModelSettingsCard({
         body: JSON.stringify({
           baseUrl,
           modelName,
-          apiKey: apiKey.trim() || undefined,
+          apiKey: editingApiKey ? apiKey.trim() || undefined : undefined,
         }),
       });
       const payload = (await response.json()) as {
@@ -224,21 +229,8 @@ function ModelSettingsCard({
       }
       onUpdate(payload.data);
       setApiKey("");
+      setEditingApiKey(false);
       setMessage("已保存。API Key 只会以脱敏状态显示。");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function deleteKey() {
-    setBusy(true);
-    try {
-      const response = await fetch("/api/settings/model/key", { method: "DELETE" });
-      const payload = (await response.json()) as { data?: PublicIntegrationSetting };
-      if (payload.data) {
-        onUpdate(payload.data);
-        setMessage("已删除页面保存的 API Key。Chat 会回退到环境变量或 mock。");
-      }
     } finally {
       setBusy(false);
     }
@@ -295,23 +287,25 @@ function ModelSettingsCard({
         </label>
         <label className="space-y-2 text-sm font-medium text-ink md:col-span-2">
           API Key
-          <div className="flex gap-2">
-            <Input
-              type="password"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              disabled={!canSaveKey}
-              placeholder={
-                canSaveKey
-                  ? "输入新的 API Key 以替换当前密钥"
-                  : "先配置 SETTINGS_ENCRYPTION_KEY 后才能保存密钥"
+          <Input
+            type="text"
+            value={editingApiKey ? apiKey : savedKeyDisplay}
+            onChange={(event) => {
+              if (!editingApiKey) setEditingApiKey(true);
+              setApiKey(event.target.value);
+            }}
+            onFocus={() => {
+              if (!editingApiKey) {
+                setEditingApiKey(true);
+                setApiKey("");
               }
-            />
-            <Button type="button" variant="secondary" onClick={deleteKey} disabled={busy || !integration.secretConfigured}>
-              <Trash2 className="h-4 w-4" />
-              删除
-            </Button>
-          </div>
+            }}
+            placeholder={
+              canSaveKey
+                ? "输入 API Key，保存后会显示为 ********"
+                : "输入 API Key，保存时会创建本地加密密钥"
+            }
+          />
         </label>
         <div className="md:col-span-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <p className="text-sm leading-6 text-muted">{message}</p>
@@ -349,7 +343,10 @@ function MarketProviderCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind: integration.kind }),
       });
-      const payload = (await response.json()) as { data?: PublicIntegrationSetting };
+      const payload = (await response.json()) as {
+        data?: PublicIntegrationSetting;
+        error?: { message: string };
+      };
       if (payload.data) onUpdate(payload.data);
     } finally {
       setTesting(false);
@@ -409,7 +406,7 @@ function StatusDot({
 }
 
 function sourceLabel(source: PublicIntegrationSetting["source"]) {
-  if (source === "database") return "页面配置";
+  if (source === "file") return "配置文件";
   if (source === "env") return "环境变量";
   if (source === "mock") return "Mock";
   return "未配置";

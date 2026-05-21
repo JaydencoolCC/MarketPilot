@@ -43,8 +43,127 @@ export class SinaQuoteProvider implements QuoteProvider {
   }
 
   async searchSymbols(keyword: string, market?: Market): Promise<Security[]> {
-    return searchKnownSecurities(keyword, market);
+    const localResults = searchKnownSecurities(keyword, market);
+    const query = keyword.trim();
+    if (!query) return localResults;
+
+    try {
+      const remoteResults = await searchSinaSuggestions(query, market);
+      return rankSecurities(mergeSecurities(remoteResults, localResults), query).slice(0, 12);
+    } catch {
+      return localResults;
+    }
   }
+}
+
+async function searchSinaSuggestions(keyword: string, market?: Market): Promise<Security[]> {
+  const url = new URL("https://suggest3.sinajs.cn/suggest/type=");
+  url.searchParams.set("key", keyword);
+  url.searchParams.set("name", "suggestvalue");
+
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: {
+      Referer: "https://finance.sina.com.cn/",
+      "User-Agent": "Mozilla/5.0",
+    },
+  });
+
+  if (!response.ok) {
+    throw new AppError("PROVIDER_UNAVAILABLE", `Sina 搜索请求失败：${response.status}`, 503);
+  }
+
+  const text = new TextDecoder("gb18030").decode(await response.arrayBuffer());
+  return parseSinaSuggestions(text, market);
+}
+
+function parseSinaSuggestions(text: string, market?: Market): Security[] {
+  const raw = text.match(/suggestvalue="([^"]*)"/)?.[1] ?? "";
+  if (!raw) return [];
+
+  return raw
+    .split(";")
+    .flatMap((item) => item.split("\\n"))
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map(parseSinaSuggestion)
+    .filter((security): security is Security => Boolean(security))
+    .filter((security) => (market ? security.market === market : true));
+}
+
+function parseSinaSuggestion(item: string): Security | null {
+  const fields = item.split(",");
+  const name = fields[0]?.trim();
+  const type = fields[1]?.trim();
+  const code = fields[2]?.trim();
+  const marketCode = fields[3]?.trim().toLowerCase();
+  if (!name || !code || !marketCode) return null;
+
+  if (type === "11" || marketCode.startsWith("sh") || marketCode.startsWith("sz")) {
+    if (!/^[036]\d{5}$/.test(code)) return null;
+    const marketSuffix = marketCode.startsWith("sh") ? "SH" : "SZ";
+    return {
+      symbol: code,
+      normalizedSymbol: `${code}.${marketSuffix}`,
+      market: "CN",
+      name,
+      currency: "CNY",
+    };
+  }
+
+  if (type === "31" || marketCode.startsWith("hk")) {
+    const rawCode = code.replace(/^0+(?=\d)/, "");
+    return {
+      symbol: rawCode,
+      normalizedSymbol: `${rawCode}.HK`,
+      market: "HK",
+      name,
+      currency: "HKD",
+    };
+  }
+
+  if (type === "41" || type === "103" || marketCode.startsWith("gb_")) {
+    const symbol = code.toUpperCase();
+    return {
+      symbol,
+      normalizedSymbol: `${symbol}.US`,
+      market: "US",
+      name,
+      currency: "USD",
+    };
+  }
+
+  return null;
+}
+
+function mergeSecurities(...groups: Security[][]) {
+  const results = new Map<string, Security>();
+  for (const group of groups) {
+    for (const security of group) {
+      results.set(security.normalizedSymbol, security);
+    }
+  }
+  return [...results.values()];
+}
+
+function rankSecurities(securities: Security[], keyword: string) {
+  const query = keyword.trim().toUpperCase();
+  return [...securities].sort((left, right) => scoreSecurity(right, query) - scoreSecurity(left, query));
+}
+
+function scoreSecurity(security: Security, query: string) {
+  const symbol = security.symbol.toUpperCase();
+  const normalizedSymbol = security.normalizedSymbol.toUpperCase();
+  const name = security.name.toUpperCase();
+  const aliases = security.aliases?.map((alias) => alias.toUpperCase()) ?? [];
+  if (symbol === query || normalizedSymbol === query) return 100;
+  if (aliases.some((alias) => alias === query)) return 95;
+  if (name === query) return 90;
+  if (normalizedSymbol.startsWith(query)) return 80;
+  if (symbol.startsWith(query)) return 70;
+  if (aliases.some((alias) => alias.includes(query) || query.includes(alias))) return 65;
+  if (name.includes(query)) return 60;
+  return 0;
 }
 
 function toSinaCode(normalizedSymbol: string) {

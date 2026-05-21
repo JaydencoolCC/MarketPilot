@@ -121,6 +121,7 @@ export type IntegrationSetting = {
   provider: string;
   baseUrl?: string;
   modelName?: string;
+  secret?: string;
   encryptedSecret?: string;
   secretPreview?: string;
   lastTestStatus: IntegrationTestStatus;
@@ -133,7 +134,7 @@ export type IntegrationSetting = {
 export type PublicIntegrationSetting = {
   kind: IntegrationKind;
   provider: string;
-  source: "database" | "env" | "mock" | "unconfigured";
+  source: "file" | "env" | "mock" | "unconfigured";
   label: string;
   description: string;
   status: IntegrationTestStatus;

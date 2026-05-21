@@ -1,8 +1,7 @@
 import { getIntegrationSetting } from "@/lib/db/store";
-import { decryptSecret } from "@/lib/utils/secrets";
 
 export type ResolvedModelConfig = {
-  source: "database" | "env" | "mock" | "unconfigured";
+  source: "file" | "env" | "mock" | "unconfigured";
   provider: "mock" | "openai-compatible";
   baseUrl?: string;
   modelName?: string;
@@ -12,15 +11,15 @@ export type ResolvedModelConfig = {
 
 export async function resolveModelConfig(): Promise<ResolvedModelConfig> {
   const setting = await getIntegrationSetting("model");
-  const hasDatabaseConfig = Boolean(setting?.baseUrl && setting?.modelName && setting?.encryptedSecret);
+  const hasFileConfig = Boolean(setting?.baseUrl && setting?.modelName && setting?.secret);
 
-  if (hasDatabaseConfig && setting?.encryptedSecret) {
+  if (hasFileConfig && setting?.secret) {
     return {
-      source: "database",
+      source: "file",
       provider: "openai-compatible",
       baseUrl: setting.baseUrl,
       modelName: setting.modelName,
-      apiKey: decryptSecret(setting.encryptedSecret),
+      apiKey: setting.secret,
       message: "使用设置页保存的模型配置。",
     };
   }

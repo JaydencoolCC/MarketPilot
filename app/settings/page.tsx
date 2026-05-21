@@ -19,7 +19,7 @@ export default async function SettingsPage() {
         <p className="text-sm font-medium text-moss">设置</p>
         <h1 className="mt-1 text-2xl font-semibold text-ink md:text-3xl">连接服务，保留你的节奏</h1>
         <p className="mt-2 text-sm leading-6 text-muted">
-          API Key 可以在这里配置，但不会回显完整内容；没有真实服务时，系统会继续使用 mock provider。
+          API Key 和 SMTP 授权码可以在这里配置，但不会回显完整内容；未配置真实服务时，系统会直接提示缺少配置。
         </p>
       </header>
       <SettingsCenter initialEmailSetting={setting} initialIntegrations={integrations} />

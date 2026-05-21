@@ -1,5 +1,6 @@
 import { AppError } from "@/lib/domain/errors";
 import type { Market, Quote, Security } from "@/lib/domain/types";
+import { AutoQuoteProvider } from "@/lib/providers/quotes/auto";
 import { LongbridgeQuoteProvider } from "@/lib/providers/quotes/longbridge";
 import { MockQuoteProvider } from "@/lib/providers/quotes/mock";
 import { SinaQuoteProvider } from "@/lib/providers/quotes/sina";
@@ -25,7 +26,11 @@ class UnimplementedQuoteProvider implements QuoteProvider {
 }
 
 export function getQuoteProvider(): QuoteProvider {
-  const provider = process.env.QUOTE_PROVIDER ?? "mock";
+  const provider = process.env.QUOTE_PROVIDER ?? "auto";
+  if (provider === "auto") {
+    return new AutoQuoteProvider();
+  }
+
   if (provider === "mock") {
     return new MockQuoteProvider();
   }

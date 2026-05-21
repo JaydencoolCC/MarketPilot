@@ -11,12 +11,13 @@ cp .env.example .env
 npm run dev
 ```
 
-默认使用 mock providers，不需要真实 API key 即可开发 Dashboard、自选股、摘要预览和 Chat。
+默认行情使用 `QUOTE_PROVIDER=auto`，优先请求公开真实行情源；新闻、模型和邮件默认使用 mock providers，不需要真实 API key 即可开发 Dashboard、自选股、摘要预览和 Chat。
 
 常用检查：
 
 ```bash
 conda run -n trade npm test
+conda run -n trade npm run test:e2e
 conda run -n trade npm run typecheck
 conda run -n trade npm run lint
 conda run -n trade npm run build
@@ -61,22 +62,13 @@ DATABASE_URL="postgresql://trade:trade@127.0.0.1:5432/trade?schema=public" \
 
 ## Provider Verification
 
-Mock 模式端到端检查：
-
-1. 启动应用后打开 Dashboard。
-2. 添加 `AAPL.US`、`700.HK`、`600519.SH`。
-3. 确认表格显示价格、涨跌幅、更新时间、市场状态、新闻数和数据状态。
-4. 打开设置页，配置每日邮件并发送测试邮件。
-5. 打开 Chat，询问“今天我的自选股有什么重要变化？”。
-6. 确认回答包含结论、依据、数据时间、来源和不确定性。
-
 真实 provider 检查：
 
-- 行情：设置 `QUOTE_PROVIDER` 为 `longbridge`、`sina` 或 `yahoo`，添加三类市场股票后确认行情刷新成功；失败时页面应保留上次数据并显示友好状态。
-- 新闻：设置 `NEWS_PROVIDER=alpha-vantage` 和 `ALPHA_VANTAGE_API_KEY`，在详情抽屉和摘要预览里确认新闻来源、时间和去重结果。
-- 模型：设置 `MODEL_PROVIDER=openai-compatible`、`MODEL_BASE_URL`、`MODEL_API_KEY`、`MODEL_NAME`，在设置页测试连接，再验证 Chat 流式回答。
-- 邮件：设置 `EMAIL_PROVIDER=smtp`、`SMTP_URL`、`EMAIL_FROM`，先发送测试邮件，再手动触发每日摘要任务。
-- 安全：不要提交 `.env`；页面保存的模型 API Key 需要配置 `SETTINGS_ENCRYPTION_KEY`。
+- 行情：默认 `QUOTE_PROVIDER=auto` 会优先使用公开真实行情源；也可以显式设置为 `longbridge`、`sina` 或 `yahoo`。添加三类市场股票后确认行情刷新成功；失败时页面应保留上次数据并显示友好状态。
+- 新闻：默认 `NEWS_PROVIDER=public` 会请求公开真实新闻源；也可以设置 `NEWS_PROVIDER=alpha-vantage` 和 `ALPHA_VANTAGE_API_KEY`，在详情抽屉和摘要预览里确认新闻来源、时间和去重结果。
+- 模型：必须设置 `MODEL_PROVIDER=openai-compatible`，并在设置页保存 Base URL、模型名称和 API Key；测试连接成功后再验证 Chat 流式回答。未配置时会直接提示缺少真实模型配置。
+- 邮件：设置 `EMAIL_PROVIDER=smtp`，并在设置页保存发件人和 SMTP 授权码；先发送测试邮件，再手动触发每日摘要任务。QQ 邮箱需要先在邮箱设置中开启 SMTP 服务，并使用授权码而不是登录密码。
+- 安全：不要提交 `.env`；本地开发会自动创建 `.local/settings-encryption-key` 用来加密页面保存的密钥，生产部署建议显式配置 `SETTINGS_ENCRYPTION_KEY`。
 
 ## Deployment Checklist
 

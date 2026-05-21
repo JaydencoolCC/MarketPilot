@@ -29,6 +29,7 @@ export async function getPrisma() {
       findMany: (args?: unknown) => Promise<WatchlistRecord[]>;
       findUnique: (args: unknown) => Promise<WatchlistRecord | null>;
       create: (args: unknown) => Promise<WatchlistRecord>;
+      update: (args: unknown) => Promise<WatchlistRecord>;
       delete: (args: unknown) => Promise<WatchlistRecord>;
     };
     quoteSnapshot: {

@@ -4,14 +4,24 @@ import {
   deleteWatchlistItem,
   getEmailSetting,
   getWatchlistItems,
+  listPublicIntegrations,
   listWatchlistRows,
   resetStoreForTests,
+  upsertEmailIntegration,
   updateEmailSetting,
 } from "@/lib/db/store";
 
 const previousEnv = {
   QUOTE_PROVIDER: process.env.QUOTE_PROVIDER,
   NEWS_PROVIDER: process.env.NEWS_PROVIDER,
+  EMAIL_PROVIDER: process.env.EMAIL_PROVIDER,
+  SMTP_URL: process.env.SMTP_URL,
+  EMAIL_FROM: process.env.EMAIL_FROM,
+  SETTINGS_ENCRYPTION_KEY: process.env.SETTINGS_ENCRYPTION_KEY,
+  MODEL_PROVIDER: process.env.MODEL_PROVIDER,
+  MODEL_BASE_URL: process.env.MODEL_BASE_URL,
+  MODEL_API_KEY: process.env.MODEL_API_KEY,
+  MODEL_NAME: process.env.MODEL_NAME,
 };
 
 beforeEach(() => {
@@ -24,6 +34,14 @@ afterEach(() => {
   resetStoreForTests();
   restoreEnv("QUOTE_PROVIDER", previousEnv.QUOTE_PROVIDER);
   restoreEnv("NEWS_PROVIDER", previousEnv.NEWS_PROVIDER);
+  restoreEnv("EMAIL_PROVIDER", previousEnv.EMAIL_PROVIDER);
+  restoreEnv("SMTP_URL", previousEnv.SMTP_URL);
+  restoreEnv("EMAIL_FROM", previousEnv.EMAIL_FROM);
+  restoreEnv("SETTINGS_ENCRYPTION_KEY", previousEnv.SETTINGS_ENCRYPTION_KEY);
+  restoreEnv("MODEL_PROVIDER", previousEnv.MODEL_PROVIDER);
+  restoreEnv("MODEL_BASE_URL", previousEnv.MODEL_BASE_URL);
+  restoreEnv("MODEL_API_KEY", previousEnv.MODEL_API_KEY);
+  restoreEnv("MODEL_NAME", previousEnv.MODEL_NAME);
 });
 
 function restoreEnv(key: keyof NodeJS.ProcessEnv, value: string | undefined) {
@@ -60,6 +78,20 @@ describe("watchlist store", () => {
     expect(await getWatchlistItems()).toHaveLength(0);
   });
 
+  it("uses company names for known HK and A-share symbols", async () => {
+    await addWatchlistItem({ symbol: "000001.SH" });
+    await addWatchlistItem({ symbol: "1810.HK" });
+    await addWatchlistItem({ symbol: "000725.SZ" });
+    await addWatchlistItem({ symbol: "002352.SZ" });
+
+    expect((await getWatchlistItems()).map((item) => item.name)).toEqual([
+      "顺丰控股",
+      "京东方A",
+      "小米集团-W",
+      "上证指数",
+    ]);
+  });
+
   it("keeps watchlist usable when the quote provider fails", async () => {
     process.env.QUOTE_PROVIDER = "unavailable";
 
@@ -92,5 +124,54 @@ describe("watchlist store", () => {
       recipientEmail: "me@example.com",
       sendTime: "09:15",
     });
+  });
+
+  it("shows an actionable email integration status when SMTP is incomplete", async () => {
+    process.env.EMAIL_PROVIDER = "smtp";
+    delete process.env.SMTP_URL;
+
+    const email = (await listPublicIntegrations()).find((item) => item.kind === "email");
+
+    expect(email).toMatchObject({
+      provider: "smtp",
+      source: "unconfigured",
+      status: "failed",
+      statusMessage: "SMTP 配置不完整，请设置 SMTP_URL 和 EMAIL_FROM。",
+    });
+  });
+
+  it("does not report mock chat as a completed real model integration", async () => {
+    process.env.MODEL_PROVIDER = "mock";
+    delete process.env.MODEL_BASE_URL;
+    delete process.env.MODEL_API_KEY;
+    delete process.env.MODEL_NAME;
+
+    const model = (await listPublicIntegrations()).find((item) => item.kind === "model");
+
+    expect(model).toMatchObject({
+      provider: "mock",
+      source: "mock",
+      status: "failed",
+      statusMessage: "真实模型未配置，请填写 Base URL、模型名称和 API Key。",
+    });
+  });
+
+  it("stores SMTP settings from the settings page", async () => {
+    process.env.SETTINGS_ENCRYPTION_KEY = "test-encryption-key";
+
+    await upsertEmailIntegration({
+      smtpUrl: "smtps://user:auth-code@smtp.qq.com:465",
+      from: "user@qq.com",
+    });
+
+    const email = (await listPublicIntegrations()).find((item) => item.kind === "email");
+
+    expect(email).toMatchObject({
+      provider: "smtp",
+      source: "file",
+      baseUrl: "user@qq.com",
+      secretConfigured: true,
+    });
+    expect(email?.secretPreview).not.toContain("auth-code");
   });
 });

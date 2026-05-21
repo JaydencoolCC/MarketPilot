@@ -46,7 +46,15 @@ export async function buildDigestPreview(): Promise<DigestBuildResult> {
       hours: 24,
     }),
   );
-  const digest = await (await getModelProvider()).generateDigest({ watchlist, quotes, articles });
+  let digest: DigestPreview;
+  try {
+    digest = await (await getModelProvider()).generateDigest({ watchlist, quotes, articles });
+  } catch (error) {
+    if (!(error instanceof AppError) || error.code !== "PROVIDER_UNAVAILABLE") {
+      throw error;
+    }
+    digest = buildBasicDigest({ watchlist, quotes, articles });
+  }
 
   return {
     setting,
@@ -55,7 +63,46 @@ export async function buildDigestPreview(): Promise<DigestBuildResult> {
   };
 }
 
-export async function sendDailyDigest() {
+function buildBasicDigest({
+  watchlist,
+  quotes,
+  articles,
+}: {
+  watchlist: Awaited<ReturnType<typeof getWatchlistItems>>;
+  quotes: Awaited<ReturnType<typeof refreshQuotes>>;
+  articles: Awaited<ReturnType<typeof saveNewsArticles>>;
+}): DigestPreview {
+  const topArticles = articles.slice(0, 3);
+  const quoteLines = watchlist.slice(0, 6).map((item) => {
+    const quote = quotes.find((entry) => entry.symbol === item.normalizedSymbol);
+    if (!quote) return `${item.name}（${item.normalizedSymbol}）：暂无最新行情。`;
+    return `${item.name}（${item.normalizedSymbol}）：${quote.price} ${quote.currency}，涨跌幅 ${quote.changePercent.toFixed(2)}%，行情时间 ${new Date(quote.quoteTime).toLocaleString("zh-CN")}。`;
+  });
+
+  return {
+    title: "今日重点财经摘要",
+    generatedAt: new Date().toISOString(),
+    sections: [
+      {
+        heading: "市场重点",
+        body: topArticles.length
+          ? topArticles.map((article) => article.summary || article.title).join(" ")
+          : "过去 24 小时没有找到与当前关注市场高度相关的重要新闻。",
+        sources: topArticles.map((article) => ({ title: article.title, url: article.url })),
+      },
+      {
+        heading: "自选股变化",
+        body: quoteLines.length ? quoteLines.join(" ") : "还没有自选股，暂时无法整理个股变化。",
+      },
+      {
+        heading: "说明",
+        body: "当前模型配置不可用，本邮件使用行情和新闻数据生成基础摘要。",
+      },
+    ],
+  };
+}
+
+export async function sendDailyDigest(options: { force?: boolean } = {}) {
   const setting = await getEmailSetting();
   const recipientEmail = setting.recipientEmail.trim();
 
@@ -70,7 +117,7 @@ export async function sendDailyDigest() {
   const date = digestDateForTimezone(new Date(), setting.timezone);
   const existing = await findNewsDigest({ date, recipientEmail });
 
-  if (existing?.emailStatus === "sent") {
+  if (existing?.emailStatus === "sent" && !options.force) {
     return {
       status: "skipped",
       message: "今天的每日摘要已经发送过，不会重复发送。",
@@ -97,7 +144,7 @@ export async function sendDailyDigest() {
     }));
 
   try {
-    const result = await getEmailProvider().sendDigest({
+    const result = await (await getEmailProvider()).sendDigest({
       setting: {
         ...built.setting,
         recipientEmail,

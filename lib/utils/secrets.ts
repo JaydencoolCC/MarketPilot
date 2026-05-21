@@ -1,22 +1,30 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { AppError } from "@/lib/domain/errors";
 
 const VERSION = "v1";
+const LOCAL_KEY_PATH = join(process.cwd(), ".local", "settings-encryption-key");
 
 function configuredSecret() {
-  return process.env.SETTINGS_ENCRYPTION_KEY?.trim() ?? "";
+  const envSecret = process.env.SETTINGS_ENCRYPTION_KEY?.trim();
+  if (envSecret) return envSecret;
+  if (existsSync(LOCAL_KEY_PATH)) {
+    return readFileSync(LOCAL_KEY_PATH, "utf8").trim();
+  }
+  return "";
 }
 
 export function hasSettingsEncryptionKey() {
-  return configuredSecret().length > 0;
+  return configuredSecret().length > 0 || process.env.NODE_ENV !== "production";
 }
 
 function encryptionKey() {
-  const raw = configuredSecret();
+  const raw = configuredSecret() || createLocalSecret();
   if (!raw) {
     throw new AppError(
       "VALIDATION_ERROR",
-      "缺少 SETTINGS_ENCRYPTION_KEY，不能保存 API Key。",
+      "缺少 SETTINGS_ENCRYPTION_KEY，不能保存密钥。",
       400,
     );
   }
@@ -31,6 +39,14 @@ function encryptionKey() {
   }
 
   return createHash("sha256").update(raw).digest();
+}
+
+function createLocalSecret() {
+  if (process.env.NODE_ENV === "production") return "";
+  const secret = randomBytes(32).toString("base64url");
+  mkdirSync(dirname(LOCAL_KEY_PATH), { recursive: true });
+  writeFileSync(LOCAL_KEY_PATH, secret, { mode: 0o600 });
+  return secret;
 }
 
 export function encryptSecret(secret: string) {

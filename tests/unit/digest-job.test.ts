@@ -66,6 +66,26 @@ describe("daily digest job", () => {
     expect(second.digest.title).toBe(first.digest.title);
   });
 
+  it("allows manual daily digest sends to retry after an earlier send", async () => {
+    await addWatchlistItem({ symbol: "AAPL.US" });
+    await updateEmailSetting({
+      enabled: true,
+      recipientEmail: "me@example.com",
+      sendTime: "08:30",
+      timezone: "Asia/Shanghai",
+      markets: ["US", "HK", "CN"],
+      watchlistOnly: true,
+    });
+
+    await sendDailyDigest();
+    const retried = await sendDailyDigest({ force: true });
+
+    expect(retried).toMatchObject({
+      status: "sent",
+      message: "每日摘要已在 mock provider 中模拟发送。",
+    });
+  });
+
   it("requires the daily email setting to be enabled", async () => {
     await updateEmailSetting({
       enabled: false,

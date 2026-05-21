@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/news/route";
 import { resetStoreForTests } from "@/lib/db/store";
+import { getNewsProvider } from "@/lib/providers/news";
 
 const previousEnv = {
   NEWS_PROVIDER: process.env.NEWS_PROVIDER,
@@ -26,6 +27,12 @@ function restoreEnv(key: keyof NodeJS.ProcessEnv, value: string | undefined) {
 }
 
 describe("news API", () => {
+  it("uses the public news provider by default", () => {
+    delete process.env.NEWS_PROVIDER;
+
+    expect(getNewsProvider().constructor.name).toBe("PublicNewsProvider");
+  });
+
   it("returns recent news for requested symbols", async () => {
     const response = await GET(
       new NextRequest("https://trade.local/api/news?symbols=AAPL.US&hours=24"),

@@ -19,8 +19,6 @@ import {
   shouldUseDatabase,
   type ChatMessageRecord,
   type ChatSessionRecord,
-  type EmailDigestSettingRecord,
-  type IntegrationSettingRecord,
   type JobRunRecord as PrismaJobRunRecord,
   type NewsDigestRecord as PrismaNewsDigestRecord,
   type QuoteSnapshotRecord,
@@ -28,7 +26,14 @@ import {
 } from "@/lib/db/prisma";
 import { getNewsProvider } from "@/lib/providers/news";
 import { getQuoteProvider } from "@/lib/providers/quotes";
-import { encryptSecret, hasSettingsEncryptionKey, maskSecret } from "@/lib/utils/secrets";
+import { decryptSecret, maskSecret } from "@/lib/utils/secrets";
+import {
+  getLocalEmailSetting,
+  getLocalIntegrationSetting,
+  resetLocalSettingsForTests,
+  saveLocalEmailSetting,
+  saveLocalIntegrationSetting,
+} from "@/lib/settings/local-settings";
 
 type StoreState = {
   watchlist: WatchlistItem[];
@@ -78,16 +83,30 @@ function getStore() {
 }
 
 function watchlistItemFromRecord(record: WatchlistRecord): WatchlistItem {
+  const security = securityFromSymbol(record.normalizedSymbol);
+  const name =
+    !record.name || record.name === record.normalizedSymbol ? security.name : record.name;
+
   return {
     id: record.id,
     symbol: record.symbol,
     normalizedSymbol: record.normalizedSymbol,
     market: record.market,
-    name: record.name,
+    name,
     currency: record.currency,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   };
+}
+
+async function resolveSecurityForWatchlist(input: { symbol: string; market?: Market }) {
+  const fallback = securityFromSymbol(input.symbol, input.market);
+  try {
+    const results = await getQuoteProvider().searchSymbols(fallback.normalizedSymbol, fallback.market);
+    return results.find((item) => item.normalizedSymbol === fallback.normalizedSymbol) ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function quoteFromSnapshot(snapshot: QuoteSnapshotRecord): Quote {
@@ -104,20 +123,6 @@ function quoteFromSnapshot(snapshot: QuoteSnapshotRecord): Quote {
     status: snapshot.errorCode ? "error" : "ok",
     errorCode: snapshot.errorCode ?? undefined,
     errorMessage: snapshot.errorMessage ?? undefined,
-  };
-}
-
-function emailSettingFromRecord(record: EmailDigestSettingRecord): EmailDigestSetting {
-  return {
-    id: record.id,
-    enabled: record.enabled,
-    recipientEmail: record.recipientEmail,
-    sendTime: record.sendTime,
-    timezone: record.timezone,
-    markets: record.markets,
-    watchlistOnly: record.watchlistOnly,
-    createdAt: record.createdAt.toISOString(),
-    updatedAt: record.updatedAt.toISOString(),
   };
 }
 
@@ -153,23 +158,6 @@ function chatMessageFromRecord(record: ChatMessageRecord): ChatMessage {
     role: record.role as ChatMessage["role"],
     content: record.content,
     createdAt: record.createdAt.toISOString(),
-  };
-}
-
-function integrationFromRecord(record: IntegrationSettingRecord): IntegrationSetting {
-  return {
-    id: record.id,
-    kind: record.kind as IntegrationKind,
-    provider: record.provider,
-    baseUrl: record.baseUrl ?? undefined,
-    modelName: record.modelName ?? undefined,
-    encryptedSecret: record.encryptedSecret ?? undefined,
-    secretPreview: record.secretPreview ?? undefined,
-    lastTestStatus: record.lastTestStatus as IntegrationSetting["lastTestStatus"],
-    lastTestMessage: record.lastTestMessage ?? undefined,
-    lastTestedAt: record.lastTestedAt?.toISOString(),
-    createdAt: record.createdAt.toISOString(),
-    updatedAt: record.updatedAt.toISOString(),
   };
 }
 
@@ -232,12 +220,19 @@ export async function listWatchlistRows(): Promise<WatchlistRow[]> {
 export async function addWatchlistItem(input: { symbol: string; market?: Market }) {
   if (shouldUseDatabase()) {
     const db = await getPrisma();
-    const security = securityFromSymbol(input.symbol, input.market);
+    const security = await resolveSecurityForWatchlist(input);
     const existing = await db.watchlistItem.findUnique({
       where: { normalizedSymbol: security.normalizedSymbol },
     });
 
     if (existing) {
+      if (!existing.name || existing.name === existing.normalizedSymbol) {
+        const updated = await db.watchlistItem.update({
+          where: { id: existing.id },
+          data: { name: security.name },
+        });
+        return watchlistItemFromRecord(updated);
+      }
       return watchlistItemFromRecord(existing);
     }
 
@@ -255,12 +250,16 @@ export async function addWatchlistItem(input: { symbol: string; market?: Market 
   }
 
   const store = getStore();
-  const security = securityFromSymbol(input.symbol, input.market);
+  const security = await resolveSecurityForWatchlist(input);
   const exists = store.watchlist.find(
     (item) => item.normalizedSymbol === security.normalizedSymbol,
   );
 
   if (exists) {
+    if (!exists.name || exists.name === exists.normalizedSymbol) {
+      exists.name = security.name;
+      exists.updatedAt = now();
+    }
     return exists;
   }
 
@@ -518,6 +517,9 @@ export async function saveNewsArticles(articles: NewsArticle[]) {
 }
 
 export async function getEmailSetting() {
+  const localSetting = getLocalEmailSetting();
+  if (localSetting) return localSetting;
+
   if (shouldUseDatabase()) {
     const db = await getPrisma();
     const record = await db.emailDigestSetting.findFirst({
@@ -525,53 +527,35 @@ export async function getEmailSetting() {
     });
 
     if (record) {
-      return emailSettingFromRecord(record);
+      const setting: EmailDigestSetting = {
+        id: record.id,
+        enabled: record.enabled,
+        recipientEmail: record.recipientEmail,
+        sendTime: record.sendTime,
+        timezone: record.timezone,
+        markets: record.markets,
+        watchlistOnly: record.watchlistOnly,
+        createdAt: record.createdAt.toISOString(),
+        updatedAt: record.updatedAt.toISOString(),
+      };
+      return saveLocalEmailSetting(setting);
     }
-
-    const initial = getStore().emailSetting;
-    const created = await db.emailDigestSetting.create({
-      data: {
-        enabled: initial.enabled,
-        recipientEmail: initial.recipientEmail,
-        sendTime: initial.sendTime,
-        timezone: initial.timezone,
-        markets: initial.markets,
-        watchlistOnly: initial.watchlistOnly,
-      },
-    });
-    return emailSettingFromRecord(created);
   }
 
   return getStore().emailSetting;
 }
 
 export async function updateEmailSetting(input: Partial<EmailDigestSetting>) {
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    const current = await getEmailSetting();
-    const updated = await db.emailDigestSetting.update({
-      where: { id: current.id },
-      data: {
-        enabled: input.enabled ?? current.enabled,
-        recipientEmail: input.recipientEmail ?? current.recipientEmail,
-        sendTime: input.sendTime ?? current.sendTime,
-        timezone: input.timezone ?? current.timezone,
-        markets: input.markets ?? current.markets,
-        watchlistOnly: input.watchlistOnly ?? current.watchlistOnly,
-      },
-    });
-    return emailSettingFromRecord(updated);
-  }
-
-  const store = getStore();
-  store.emailSetting = {
-    ...store.emailSetting,
+  const current = await getEmailSetting();
+  const next = {
+    ...current,
     ...input,
-    id: store.emailSetting.id,
-    createdAt: store.emailSetting.createdAt,
+    id: current.id,
+    createdAt: current.createdAt,
     updatedAt: now(),
   };
-  return store.emailSetting;
+  getStore().emailSetting = next;
+  return saveLocalEmailSetting(next);
 }
 
 export async function findNewsDigest(input: {
@@ -769,13 +753,75 @@ export async function listRecentChatMessages(limit = 12) {
 }
 
 export async function getIntegrationSetting(kind: IntegrationKind) {
+  const localSetting = getLocalIntegrationSetting(kind);
+  if (localSetting) {
+    if (kind === "model" && !localSetting.secret && shouldUseDatabase()) {
+      return migrateModelSecretFromDatabase(localSetting);
+    }
+    return localSetting;
+  }
+
+  const fallbackSetting = getStore().integrations[kind];
+  if (fallbackSetting) {
+    if (kind === "model" && !fallbackSetting.secret && shouldUseDatabase()) {
+      return migrateModelSecretFromDatabase(fallbackSetting);
+    }
+    return fallbackSetting;
+  }
+
   if (shouldUseDatabase()) {
     const db = await getPrisma();
     const record = await db.integrationSetting.findUnique({ where: { kind } });
-    return record ? integrationFromRecord(record) : null;
+    if (record) {
+      const setting: IntegrationSetting = {
+        id: record.id,
+        kind: record.kind as IntegrationKind,
+        provider: record.provider,
+        baseUrl: record.baseUrl ?? undefined,
+        modelName: record.modelName ?? undefined,
+        secretPreview: record.secretPreview ?? undefined,
+        lastTestStatus: record.lastTestStatus as IntegrationSetting["lastTestStatus"],
+        lastTestMessage: record.lastTestMessage ?? undefined,
+        lastTestedAt: record.lastTestedAt?.toISOString(),
+        createdAt: record.createdAt.toISOString(),
+        updatedAt: record.updatedAt.toISOString(),
+      };
+      if (!setting.secret && record.encryptedSecret) {
+        try {
+          setting.secret = decryptSecret(record.encryptedSecret);
+        } catch {
+          setting.lastTestStatus = "failed";
+          setting.lastTestMessage = "旧 API Key 使用的本地密钥已变更，无法恢复。请重新输入 API Key 并保存。";
+        }
+      }
+      return saveLocalIntegrationSetting(setting);
+    }
   }
 
-  return getStore().integrations[kind] ?? null;
+  return null;
+}
+
+async function migrateModelSecretFromDatabase(setting: IntegrationSetting) {
+  const db = await getPrisma();
+  const record = await db.integrationSetting.findUnique({ where: { kind: "model" } });
+  if (!record?.encryptedSecret) return setting;
+
+  const next: IntegrationSetting = {
+    ...setting,
+    secretPreview: setting.secretPreview ?? record.secretPreview ?? undefined,
+    lastTestedAt: setting.lastTestedAt ?? record.lastTestedAt?.toISOString(),
+  };
+
+  try {
+    next.secret = decryptSecret(record.encryptedSecret);
+    next.lastTestStatus = record.lastTestStatus as IntegrationSetting["lastTestStatus"];
+    next.lastTestMessage = record.lastTestMessage ?? undefined;
+  } catch {
+    next.lastTestStatus = "failed";
+    next.lastTestMessage = "旧 API Key 使用的本地密钥已变更，无法恢复。请重新输入 API Key 并保存。";
+  }
+
+  return saveLocalIntegrationSetting(next);
 }
 
 export async function upsertModelIntegration(input: {
@@ -784,6 +830,9 @@ export async function upsertModelIntegration(input: {
   apiKey?: string;
 }) {
   const existing = await getIntegrationSetting("model");
+  if (!existing?.secret && !input.apiKey?.trim()) {
+    throw new AppError("VALIDATION_ERROR", "请输入 API Key 后再保存 Chat 配置。", 400);
+  }
   const timestamp = now();
   const next: IntegrationSetting = {
     id: existing?.id ?? "model-integration",
@@ -791,7 +840,7 @@ export async function upsertModelIntegration(input: {
     provider: "openai-compatible",
     baseUrl: input.baseUrl.trim(),
     modelName: input.modelName.trim(),
-    encryptedSecret: existing?.encryptedSecret,
+    secret: existing?.secret,
     secretPreview: existing?.secretPreview,
     lastTestStatus: existing?.lastTestStatus ?? "untested",
     lastTestMessage: existing?.lastTestMessage,
@@ -802,49 +851,72 @@ export async function upsertModelIntegration(input: {
 
   const apiKey = input.apiKey?.trim();
   if (apiKey) {
-    if (!hasSettingsEncryptionKey()) {
-      throw new AppError(
-        "VALIDATION_ERROR",
-        "缺少 SETTINGS_ENCRYPTION_KEY，不能保存 API Key。",
-        400,
-      );
-    }
-    next.encryptedSecret = encryptSecret(apiKey);
+    next.secret = apiKey;
+    next.encryptedSecret = undefined;
     next.secretPreview = maskSecret(apiKey);
-  }
-
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    await db.integrationSetting.upsert({
-      where: { kind: "model" },
-      update: {
-        provider: next.provider,
-        baseUrl: next.baseUrl,
-        modelName: next.modelName,
-        encryptedSecret: next.encryptedSecret,
-        secretPreview: next.secretPreview,
-        lastTestStatus: next.lastTestStatus,
-        lastTestMessage: next.lastTestMessage,
-        lastTestedAt: next.lastTestedAt ? new Date(next.lastTestedAt) : null,
-      },
-      create: {
-        kind: "model",
-        provider: next.provider,
-        baseUrl: next.baseUrl,
-        modelName: next.modelName,
-        encryptedSecret: next.encryptedSecret,
-        secretPreview: next.secretPreview,
-        lastTestStatus: next.lastTestStatus,
-        lastTestMessage: next.lastTestMessage,
-        lastTestedAt: next.lastTestedAt ? new Date(next.lastTestedAt) : null,
-      },
-    });
-    return publicIntegration("model");
+    next.lastTestStatus = "untested";
+    next.lastTestMessage = "已保存 API Key，尚未测试模型连接。";
+    next.lastTestedAt = undefined;
   }
 
   const store = getStore();
-  store.integrations.model = next;
+  store.integrations.model = saveLocalIntegrationSetting(next);
   return publicIntegrationFromSetting("model", next);
+}
+
+export async function upsertEmailIntegration(input: {
+  smtpUrl?: string;
+  from?: string;
+}) {
+  const existing = await getIntegrationSetting("email");
+  const timestamp = now();
+  const next: IntegrationSetting = {
+    id: existing?.id ?? "email-integration",
+    kind: "email",
+    provider: "smtp",
+    baseUrl: input.from?.trim() || existing?.baseUrl,
+    secret: existing?.secret,
+    secretPreview: existing?.secretPreview,
+    lastTestStatus: "untested",
+    createdAt: existing?.createdAt ?? timestamp,
+    updatedAt: timestamp,
+  };
+
+  const smtpUrl = input.smtpUrl?.trim();
+  if (smtpUrl) {
+    next.secret = smtpUrl;
+    next.encryptedSecret = undefined;
+    next.secretPreview = maskSecret(smtpUrl);
+  }
+
+  getStore().integrations.email = saveLocalIntegrationSetting(next);
+  return publicIntegrationFromSetting("email", next);
+}
+
+export async function resolveEmailProviderConfig() {
+  const setting = await getIntegrationSetting("email");
+  if (setting?.secret && setting.baseUrl) {
+    return {
+      provider: "smtp",
+      source: "file",
+      smtpUrl: setting.secret,
+      from: setting.baseUrl,
+    };
+  }
+
+  if (process.env.SMTP_URL && process.env.EMAIL_FROM) {
+    return {
+      provider: "smtp",
+      source: "env",
+      smtpUrl: process.env.SMTP_URL,
+      from: process.env.EMAIL_FROM,
+    };
+  }
+
+  return {
+    provider: process.env.EMAIL_PROVIDER === "smtp" ? "smtp" : "unconfigured",
+    source: "unconfigured",
+  };
 }
 
 export async function deleteModelIntegrationSecret() {
@@ -855,24 +927,12 @@ export async function deleteModelIntegrationSecret() {
 
   const next = {
     ...existing,
-    encryptedSecret: undefined,
+    secret: undefined,
     secretPreview: undefined,
     updatedAt: now(),
   };
 
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    await db.integrationSetting.update({
-      where: { kind: "model" },
-      data: {
-        encryptedSecret: null,
-        secretPreview: null,
-      },
-    });
-    return publicIntegration("model");
-  }
-
-  getStore().integrations.model = next;
+  getStore().integrations.model = saveLocalIntegrationSetting(next);
   return publicIntegrationFromSetting("model", next);
 }
 
@@ -889,7 +949,7 @@ export async function markIntegrationTest(
     provider: existing?.provider ?? defaultProvider(kind),
     baseUrl: existing?.baseUrl,
     modelName: existing?.modelName,
-    encryptedSecret: existing?.encryptedSecret,
+    secret: existing?.secret,
     secretPreview: existing?.secretPreview,
     lastTestStatus: status,
     lastTestMessage: message,
@@ -898,44 +958,15 @@ export async function markIntegrationTest(
     updatedAt: timestamp,
   };
 
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    await db.integrationSetting.upsert({
-      where: { kind },
-      update: {
-        provider: next.provider,
-        baseUrl: next.baseUrl,
-        modelName: next.modelName,
-        encryptedSecret: next.encryptedSecret,
-        secretPreview: next.secretPreview,
-        lastTestStatus: status,
-        lastTestMessage: message,
-        lastTestedAt: new Date(timestamp),
-      },
-      create: {
-        kind,
-        provider: next.provider,
-        baseUrl: next.baseUrl,
-        modelName: next.modelName,
-        encryptedSecret: next.encryptedSecret,
-        secretPreview: next.secretPreview,
-        lastTestStatus: status,
-        lastTestMessage: message,
-        lastTestedAt: new Date(timestamp),
-      },
-    });
-    return publicIntegration(kind);
-  }
-
-  getStore().integrations[kind] = next;
+  getStore().integrations[kind] = saveLocalIntegrationSetting(next);
   return publicIntegrationFromSetting(kind, next);
 }
 
 function defaultProvider(kind: IntegrationKind) {
   if (kind === "model") return process.env.MODEL_PROVIDER ?? "mock";
-  if (kind === "quote") return process.env.QUOTE_PROVIDER ?? "mock";
-  if (kind === "news") return process.env.NEWS_PROVIDER ?? "mock";
-  return process.env.EMAIL_PROVIDER ?? "mock";
+  if (kind === "quote") return process.env.QUOTE_PROVIDER ?? "auto";
+  if (kind === "news") return process.env.NEWS_PROVIDER ?? "public";
+  return process.env.EMAIL_PROVIDER ?? (process.env.SMTP_URL ? "smtp" : "mock");
 }
 
 async function publicIntegration(kind: IntegrationKind): Promise<PublicIntegrationSetting> {
@@ -947,14 +978,14 @@ function publicIntegrationFromSetting(
   kind: IntegrationKind,
   setting: IntegrationSetting | null,
 ): PublicIntegrationSetting {
-  const encryptionConfigured = hasSettingsEncryptionKey();
+  const encryptionConfigured = true;
 
   if (kind === "model") {
     const envConfigured = Boolean(
       process.env.MODEL_BASE_URL && process.env.MODEL_API_KEY && process.env.MODEL_NAME,
     );
-    const dbConfigured = Boolean(setting?.baseUrl || setting?.modelName || setting?.encryptedSecret);
-    const source = dbConfigured ? "database" : envConfigured ? "env" : "mock";
+    const dbConfigured = Boolean(setting?.baseUrl || setting?.modelName || setting?.secret);
+    const source = dbConfigured ? "file" : envConfigured ? "env" : "mock";
     const provider = source === "mock" ? "mock" : "openai-compatible";
     const secretPreview =
       setting?.secretPreview ?? (envConfigured ? maskSecret(process.env.MODEL_API_KEY ?? "") : undefined);
@@ -965,15 +996,15 @@ function publicIntegrationFromSetting(
       label: "AI Chat",
       description:
         source === "mock"
-          ? "当前使用 mock 模型，适合开发和验证交互。"
+          ? "真实模型尚未配置，当前只能使用 mock 响应。"
           : "已准备通过 OpenAI-compatible API 回答问题。",
-      status: setting?.lastTestStatus ?? (source === "mock" ? "success" : "untested"),
+      status: setting?.lastTestStatus ?? (source === "mock" ? "failed" : "untested"),
       statusMessage:
         setting?.lastTestMessage ??
-        (source === "mock" ? "Mock Chat 可用。" : "尚未测试模型连接。"),
+        (source === "mock" ? "真实模型未配置，请填写 Base URL、模型名称和 API Key。" : "尚未测试模型连接。"),
       baseUrl: setting?.baseUrl ?? process.env.MODEL_BASE_URL,
       modelName: setting?.modelName ?? process.env.MODEL_NAME,
-      secretConfigured: Boolean(setting?.encryptedSecret || envConfigured),
+      secretConfigured: Boolean(setting?.secret || envConfigured),
       secretPreview,
       encryptionConfigured,
       lastTestedAt: setting?.lastTestedAt,
@@ -981,16 +1012,38 @@ function publicIntegrationFromSetting(
   }
 
   const envProvider = defaultProvider(kind);
-  const statusMessage = envProvider === "mock" ? `${labelForKind(kind)} Mock 可用。` : "尚未测试连接。";
+  const emailConfigured = kind === "email" && Boolean(setting?.secret && setting.baseUrl);
+  const emailEnvConfigured = kind === "email" && Boolean(process.env.SMTP_URL && process.env.EMAIL_FROM);
+  const emailPartialFileConfig =
+    kind === "email" && setting?.provider === "smtp" && Boolean(setting.baseUrl) && !setting.secret;
+  const emailUnconfigured = kind === "email" && !emailConfigured && !emailEnvConfigured && !emailPartialFileConfig;
+  const emailMisconfigured = kind === "email" && envProvider === "smtp" && !emailConfigured && !emailEnvConfigured;
+  const provider = emailConfigured || emailPartialFileConfig ? "smtp" : envProvider;
+  const statusMessage = provider === "mock" ? `${labelForKind(kind)} Mock 可用。` : "尚未测试连接。";
+  const status =
+    setting?.lastTestStatus ??
+    (emailMisconfigured || emailUnconfigured ? "failed" : provider === "mock" ? "success" : "untested");
+  const staleMockMessage = kind === "email" && provider === "smtp" && setting?.lastTestMessage?.includes("mock provider");
+  const lastTestMessage = staleMockMessage ? undefined : setting?.lastTestMessage;
   return {
     kind,
-    provider: envProvider,
-    source: envProvider === "mock" ? "mock" : "env",
+    provider,
+    source: emailConfigured ? "file" : emailPartialFileConfig ? "unconfigured" : envProvider === "mock" ? "mock" : emailMisconfigured ? "unconfigured" : "env",
     label: labelForKind(kind),
-    description: descriptionForKind(kind, envProvider),
-    status: setting?.lastTestStatus ?? (envProvider === "mock" ? "success" : "untested"),
-    statusMessage: setting?.lastTestMessage ?? statusMessage,
-    secretConfigured: false,
+    description: descriptionForKind(kind, provider),
+    status: emailPartialFileConfig ? "failed" : staleMockMessage ? "untested" : status,
+    statusMessage:
+      lastTestMessage ??
+      (emailMisconfigured
+        ? "SMTP 配置不完整，请设置 SMTP_URL 和 EMAIL_FROM。"
+        : emailPartialFileConfig
+          ? "请输入 SMTP 授权码并保存邮件连接。"
+        : emailUnconfigured
+          ? "真实邮件未配置，请设置 SMTP_URL 和 EMAIL_FROM。"
+          : statusMessage),
+    baseUrl: kind === "email" ? setting?.baseUrl ?? process.env.EMAIL_FROM : undefined,
+    secretConfigured: kind === "email" ? Boolean(setting?.secret || process.env.SMTP_URL) : false,
+    secretPreview: kind === "email" ? setting?.secretPreview ?? (process.env.SMTP_URL ? maskSecret(process.env.SMTP_URL) : undefined) : undefined,
     encryptionConfigured,
     lastTestedAt: setting?.lastTestedAt,
   };
@@ -1016,4 +1069,5 @@ export async function listPublicIntegrations() {
 
 export function resetStoreForTests() {
   globalStore.tradeStore = createInitialStore();
+  resetLocalSettingsForTests();
 }

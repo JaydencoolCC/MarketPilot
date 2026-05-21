@@ -20,6 +20,11 @@ type StockTableProps = {
   initialRows: WatchlistRow[];
 };
 
+function changeColorClass(changePercent?: number) {
+  if (!changePercent) return "text-muted";
+  return changePercent > 0 ? "text-coral" : "text-moss";
+}
+
 export function StockTable({ initialRows }: StockTableProps) {
   const [rows, setRows] = useState(initialRows);
   const [query, setQuery] = useState("");
@@ -290,7 +295,6 @@ export function StockTable({ initialRows }: StockTableProps) {
             <tbody>
               {filteredRows.map((row) => {
                 const quote = row.quote;
-                const positive = (quote?.changePercent ?? 0) >= 0;
                 return (
                   <tr
                     key={row.id}
@@ -307,7 +311,7 @@ export function StockTable({ initialRows }: StockTableProps) {
                     <td className="px-4 py-4 font-medium text-ink">
                       {quote ? formatCurrency(quote.price, quote.currency) : "等待更新"}
                     </td>
-                    <td className={cn("px-4 py-4 font-semibold", positive ? "text-moss" : "text-coral")}>
+                    <td className={cn("px-4 py-4 font-semibold", changeColorClass(quote?.changePercent))}>
                       {quote ? formatPercent(quote.changePercent) : "-"}
                     </td>
                     <td className="px-4 py-4 text-muted">
@@ -397,7 +401,6 @@ function StockDetailDrawer({
   onClose: () => void;
 }) {
   const quote = row.quote;
-  const positive = (quote?.changePercent ?? 0) >= 0;
   const question = `${row.name} 今天为什么波动？`;
   const [articles, setArticles] = useState<NewsArticle[]>([]);
   const [newsStatus, setNewsStatus] = useState("正在整理相关新闻。");
@@ -460,7 +463,7 @@ function StockDetailDrawer({
               <Metric
                 label="涨跌幅"
                 value={quote ? formatPercent(quote.changePercent) : "-"}
-                className={positive ? "text-moss" : "text-coral"}
+                className={changeColorClass(quote?.changePercent)}
               />
               <Metric label="抓取时间" value={quote ? formatClockTime(quote.fetchedAt ?? quote.quoteTime) : "-"} />
               <Metric label="行情时间" value={quote ? formatClockTime(quote.quoteTime) : "-"} />

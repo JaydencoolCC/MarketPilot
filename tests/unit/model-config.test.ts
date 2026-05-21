@@ -41,7 +41,7 @@ function restoreEnv(key: keyof NodeJS.ProcessEnv, value: string | undefined) {
 }
 
 describe("model configuration resolution", () => {
-  it("prefers encrypted database settings over environment variables", async () => {
+  it("prefers local file settings over environment variables", async () => {
     process.env.MODEL_BASE_URL = "https://env.example.com/v1";
     process.env.MODEL_API_KEY = "env-secret";
     process.env.MODEL_NAME = "env-model";
@@ -53,19 +53,20 @@ describe("model configuration resolution", () => {
     });
 
     const stored = await getIntegrationSetting("model");
-    expect(stored?.encryptedSecret).toBeTruthy();
-    expect(stored?.encryptedSecret).not.toContain("db-secret");
+    expect(stored?.secret).toBe("db-secret");
+    expect(stored?.lastTestStatus).toBe("untested");
+    expect(stored?.lastTestMessage).toBe("已保存 API Key，尚未测试模型连接。");
 
     const resolved = await resolveModelConfig();
     expect(resolved).toMatchObject({
-      source: "database",
+      source: "file",
       baseUrl: "https://db.example.com/v1",
       modelName: "db-model",
       apiKey: "db-secret",
     });
   });
 
-  it("falls back to environment variables when no complete database config exists", async () => {
+  it("falls back to environment variables when no complete local file config exists", async () => {
     process.env.MODEL_BASE_URL = "https://env.example.com/v1";
     process.env.MODEL_API_KEY = "env-secret";
     process.env.MODEL_NAME = "env-model";
@@ -79,7 +80,7 @@ describe("model configuration resolution", () => {
     });
   });
 
-  it("uses mock provider when neither database nor environment config is complete", async () => {
+  it("uses mock provider when neither local file nor environment config is complete", async () => {
     const resolved = await resolveModelConfig();
     expect(resolved).toMatchObject({
       source: "mock",

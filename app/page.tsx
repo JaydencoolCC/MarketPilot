@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const rows = await listWatchlistRows();
-  const quoteProvider = process.env.QUOTE_PROVIDER ?? "mock";
+  const quoteProvider = process.env.QUOTE_PROVIDER ?? "auto";
   const lastUpdated = new Date().toLocaleString("zh-CN", {
     hour: "2-digit",
     minute: "2-digit",

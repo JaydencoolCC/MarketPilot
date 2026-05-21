@@ -63,11 +63,9 @@ export class MockModelProvider implements ModelProvider {
       : "当前没有可参考的历史对话。";
 
     const answer = [
-      `结论：我会先基于你的自选股和最新 mock 数据回答。“${input.question}” 目前最值得关注的是价格波动和相关新闻是否互相印证。`,
-      `依据：${quoteLine}${articleLine}${historyLine}`,
-      "数据时间：以上行情和新闻均来自当前系统上下文，真实 provider 接入后会显示真实来源和更新时间。",
-      "来源：mock quote provider、mock news provider。",
-      "不确定性：这不是投资建议；真实市场判断还需要结合财报、估值、宏观变量和你的风险偏好。",
+      `我会先看价格变化有没有被新闻解释得上。“${input.question}” 这个问题，目前最值得盯的是价格波动和相关新闻是否互相印证。`,
+      `${quoteLine}${articleLine}`,
+      `${historyLine} 这只是基于当前系统上下文的快速判断，不是买卖建议；如果你要继续看，我会优先补财报、行业资金面和更长周期走势。`,
     ].join("\n\n");
 
     for (const part of answer.match(/.{1,28}/gs) ?? [answer]) {

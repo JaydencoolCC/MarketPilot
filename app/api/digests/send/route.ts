@@ -4,7 +4,7 @@ import { sendDailyDigest } from "@/lib/jobs/digest";
 
 export async function POST() {
   try {
-    const result = await sendDailyDigest();
+    const result = await sendDailyDigest({ force: true });
     return NextResponse.json({ data: result, digest: result.digest });
   } catch (error) {
     const response = toErrorResponse(error);

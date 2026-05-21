@@ -46,8 +46,8 @@ export async function testModelConnection() {
 
   if (config.provider === "mock") {
     return {
-      ok: true,
-      message: "Mock Chat 可用。",
+      ok: false,
+      message: "真实模型未配置，请填写 Base URL、模型名称和 API Key。",
       source: config.source,
     };
   }

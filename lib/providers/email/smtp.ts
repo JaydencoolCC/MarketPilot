@@ -4,9 +4,11 @@ import type { DigestPreview } from "@/lib/domain/types";
 import type { DigestEmail, EmailProvider, EmailSendResult } from "@/lib/providers/email/types";
 
 export class SmtpEmailProvider implements EmailProvider {
+  constructor(private readonly config?: { smtpUrl: string; from: string }) {}
+
   async sendDigest(input: DigestEmail): Promise<EmailSendResult> {
-    const smtpUrl = process.env.SMTP_URL;
-    const from = process.env.EMAIL_FROM;
+    const smtpUrl = this.config?.smtpUrl ?? process.env.SMTP_URL;
+    const from = this.config?.from ?? process.env.EMAIL_FROM;
 
     if (!smtpUrl || !from) {
       throw new AppError(
