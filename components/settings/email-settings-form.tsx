@@ -19,7 +19,7 @@ export function EmailSettingsForm({
   onProviderUpdate,
 }: EmailSettingsFormProps) {
   const realEmailReady = Boolean(integration && integration.source !== "mock" && integration.status !== "failed");
-  const providerLabel = integration?.source === "file" ? "配置文件" : integration?.source === "mock" ? "Mock" : (integration?.provider ?? "未配置");
+  const providerLabel = integration?.source === "file" ? "配置文件" : integration?.source === "env" ? "环境变量" : (integration?.provider ?? "未配置");
   const [setting, setSetting] = useState(initialSetting);
   const [authCode, setAuthCode] = useState("");
   const [smtpHost, setSmtpHost] = useState("smtp.qq.com");

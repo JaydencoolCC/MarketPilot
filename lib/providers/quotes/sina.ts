@@ -200,7 +200,7 @@ function parseCnQuote(quote: SinaRawQuote): Quote {
     change,
     changePercent,
     currency: security.currency,
-    marketStatus: isTradingNow(time) ? "open" : "closed",
+    marketStatus: "unknown",
     provider: "sina",
     quoteTime: parseQuoteTime(date, time),
     status: "ok",
@@ -220,7 +220,7 @@ function parseUsQuote(quote: SinaRawQuote): Quote {
     change,
     changePercent,
     currency: security.currency,
-    marketStatus: "closed",
+    marketStatus: "unknown",
     provider: "sina",
     quoteTime: new Date().toISOString(),
     status: "ok",
@@ -242,7 +242,7 @@ function parseHkQuote(quote: SinaRawQuote): Quote {
     change,
     changePercent,
     currency: security.currency,
-    marketStatus: "closed",
+    marketStatus: "unknown",
     provider: "sina",
     quoteTime: new Date().toISOString(),
     status: "ok",
@@ -274,9 +274,4 @@ function toNumber(value: string | undefined) {
 function parseQuoteTime(date: string | undefined, time: string | undefined) {
   if (!date || !time) return new Date().toISOString();
   return new Date(`${date}T${time}+08:00`).toISOString();
-}
-
-function isTradingNow(time: string | undefined) {
-  if (!time) return false;
-  return time >= "09:30:00" && time <= "15:00:00";
 }

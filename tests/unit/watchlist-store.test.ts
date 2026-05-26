@@ -7,9 +7,11 @@ import {
   listPublicIntegrations,
   listWatchlistRows,
   resetStoreForTests,
+  updateWatchlistHolding,
   upsertEmailIntegration,
   updateEmailSetting,
 } from "@/lib/db/store";
+import { calculateStockHolding } from "@/lib/domain/holdings";
 
 const previousEnv = {
   QUOTE_PROVIDER: process.env.QUOTE_PROVIDER,
@@ -82,10 +84,12 @@ describe("watchlist store", () => {
     await addWatchlistItem({ symbol: "000001.SH" });
     await addWatchlistItem({ symbol: "1810.HK" });
     await addWatchlistItem({ symbol: "000725.SZ" });
+    await addWatchlistItem({ symbol: "000876.SZ" });
     await addWatchlistItem({ symbol: "002352.SZ" });
 
     expect((await getWatchlistItems()).map((item) => item.name)).toEqual([
       "顺丰控股",
+      "新希望",
       "京东方A",
       "小米集团-W",
       "上证指数",
@@ -101,6 +105,77 @@ describe("watchlist store", () => {
     expect(row?.normalizedSymbol).toBe("AAPL.US");
     expect(row?.dataStatus).toBe("error");
     expect(row?.quote?.errorMessage).toContain("行情暂时不可用");
+  });
+
+  it("stores, updates, and clears stock holding inputs", async () => {
+    const item = await addWatchlistItem({ symbol: "AAPL.US" });
+
+    await updateWatchlistHolding(item.id, { costPrice: 200.25, shares: 1.5 });
+    let [row] = await listWatchlistRows();
+
+    expect(row).toMatchObject({
+      costPrice: 200.25,
+      shares: 1.5,
+    });
+
+    await updateWatchlistHolding(item.id, { costPrice: 210, shares: 2.25 });
+    [row] = await listWatchlistRows();
+    expect(row).toMatchObject({
+      costPrice: 210,
+      shares: 2.25,
+    });
+
+    await updateWatchlistHolding(item.id, { costPrice: null, shares: null });
+    [row] = await listWatchlistRows();
+    expect(row.costPrice).toBeUndefined();
+    expect(row.shares).toBeUndefined();
+  });
+
+  it("calculates stock holding metrics from mock quotes", async () => {
+    const profitable = await addWatchlistItem({ symbol: "AAPL.US" });
+    const losing = await addWatchlistItem({ symbol: "MSFT.US" });
+
+    await updateWatchlistHolding(profitable.id, { costPrice: 200, shares: 2 });
+    await updateWatchlistHolding(losing.id, { costPrice: 520, shares: 1.5 });
+    const rows = await listWatchlistRows();
+
+    const apple = rows.find((row) => row.normalizedSymbol === "AAPL.US");
+    const microsoft = rows.find((row) => row.normalizedSymbol === "MSFT.US");
+    const appleMetrics = apple ? calculateStockHolding(apple) : null;
+    const microsoftMetrics = microsoft ? calculateStockHolding(microsoft) : null;
+
+    expect(appleMetrics).toMatchObject({
+      costValue: 400,
+      marketValue: 453.68,
+      unrealizedPnl: 53.68000000000001,
+    });
+    expect(appleMetrics?.unrealizedPnlPercent).toBeCloseTo(13.42);
+    expect(microsoftMetrics?.costValue).toBe(780);
+    expect(microsoftMetrics?.marketValue).toBeCloseTo(768.3);
+    expect(microsoftMetrics?.unrealizedPnl).toBeCloseTo(-11.7);
+    expect(microsoftMetrics?.unrealizedPnlPercent).toBeCloseTo(-1.5);
+  });
+
+  it("does not calculate holdings without both inputs and a quote", async () => {
+    const item = await addWatchlistItem({ symbol: "AAPL.US" });
+    const [row] = await listWatchlistRows();
+
+    expect(calculateStockHolding(row)).toBeNull();
+
+    await updateWatchlistHolding(item.id, { costPrice: 200, shares: 2 });
+    const [heldRow] = await listWatchlistRows();
+    expect(calculateStockHolding({ ...heldRow, quote: null })).toBeNull();
+  });
+
+  it("rejects invalid stock holding inputs", async () => {
+    const item = await addWatchlistItem({ symbol: "AAPL.US" });
+
+    await expect(
+      updateWatchlistHolding(item.id, { costPrice: 0, shares: 1 }),
+    ).rejects.toThrow("成本价和股票数必须大于 0");
+    await expect(updateWatchlistHolding(item.id, { costPrice: 1 })).rejects.toThrow(
+      "请同时填写成本价和股票数",
+    );
   });
 
   it("updates email digest settings in the fallback store", async () => {

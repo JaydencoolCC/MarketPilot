@@ -11,7 +11,7 @@ class UnimplementedQuoteProvider implements QuoteProvider {
   async getQuotes(): Promise<Quote[]> {
     throw new AppError(
       "PROVIDER_UNAVAILABLE",
-      "真实行情 provider 尚未接入，请先使用 QUOTE_PROVIDER=mock。",
+      "真实行情 provider 尚未接入，请配置 QUOTE_PROVIDER=auto、sina、yahoo 或 longbridge。",
       503,
     );
   }
@@ -19,14 +19,16 @@ class UnimplementedQuoteProvider implements QuoteProvider {
   async searchSymbols(_keyword: string, _market?: Market): Promise<Security[]> {
     throw new AppError(
       "PROVIDER_UNAVAILABLE",
-      "真实行情 provider 尚未接入，请先使用 QUOTE_PROVIDER=mock。",
+      "真实行情 provider 尚未接入，请配置 QUOTE_PROVIDER=auto、sina、yahoo 或 longbridge。",
       503,
     );
   }
 }
 
 export function getQuoteProvider(): QuoteProvider {
-  const provider = process.env.QUOTE_PROVIDER ?? "auto";
+  const configuredProvider = process.env.QUOTE_PROVIDER ?? "auto";
+  const provider =
+    configuredProvider === "mock" && process.env.NODE_ENV !== "test" ? "auto" : configuredProvider;
   if (provider === "auto") {
     return new AutoQuoteProvider();
   }

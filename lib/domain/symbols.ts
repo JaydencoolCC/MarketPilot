@@ -130,6 +130,14 @@ const KNOWN_SECURITIES: Record<string, Security> = {
     currency: "CNY",
     aliases: ["京东方", "京東方", "boe", "boe technology"],
   },
+  "000876.SZ": {
+    symbol: "000876",
+    normalizedSymbol: "000876.SZ",
+    market: "CN",
+    name: "新希望",
+    currency: "CNY",
+    aliases: ["新希望六和", "new hope", "new hope liuhe"],
+  },
   "002352.SZ": {
     symbol: "002352",
     normalizedSymbol: "002352.SZ",

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import type { Market, NewsArticle, Quote, Security, WatchlistRow } from "@/lib/domain/types";
+import { xueqiuStockUrl } from "@/lib/domain/xueqiu";
 import {
   cnMarketName,
   formatClockTime,
@@ -23,6 +24,20 @@ type StockTableProps = {
 function changeColorClass(changePercent?: number) {
   if (!changePercent) return "text-muted";
   return changePercent > 0 ? "text-coral" : "text-moss";
+}
+
+function marketStatusLabel(status?: Quote["marketStatus"]) {
+  if (status === "open") return "交易中";
+  if (status === "closed") return "已休市";
+  if (status === "pre_market") return "盘前";
+  if (status === "after_hours") return "盘后";
+  return "未返回";
+}
+
+function marketStatusTone(status?: Quote["marketStatus"]) {
+  if (status === "open") return "green";
+  if (status === "pre_market" || status === "after_hours") return "amber";
+  return "neutral";
 }
 
 export function StockTable({ initialRows }: StockTableProps) {
@@ -42,6 +57,15 @@ export function StockTable({ initialRows }: StockTableProps) {
     () => rows.filter((row) => (filter === "ALL" ? true : row.market === filter)),
     [rows, filter],
   );
+  const latestFetchedAt = useMemo(() => {
+    const timestamps = filteredRows
+      .map((row) => row.quote?.fetchedAt ?? row.quote?.quoteTime)
+      .filter((value): value is string => Boolean(value))
+      .map((value) => new Date(value).getTime())
+      .filter(Number.isFinite);
+    if (!timestamps.length) return null;
+    return new Date(Math.max(...timestamps)).toISOString();
+  }, [filteredRows]);
 
   useEffect(() => {
     rowsRef.current = rows;
@@ -201,7 +225,10 @@ export function StockTable({ initialRows }: StockTableProps) {
           <h2 className="text-lg font-semibold text-ink">自选股</h2>
           <p className="mt-1 text-sm text-muted">{message}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-sm text-muted">
+            更新时间：{latestFetchedAt ? formatClockTime(latestFetchedAt) : "-"}
+          </span>
           {(["ALL", "US", "HK", "CN"] as const).map((item) => (
             <Button
               key={item}
@@ -276,7 +303,7 @@ export function StockTable({ initialRows }: StockTableProps) {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[840px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[980px] border-collapse text-left text-sm">
             <thead className="bg-surface/80 text-xs uppercase tracking-normal text-muted">
               <tr>
                 <th className="px-4 py-3 font-medium">名称</th>
@@ -284,7 +311,6 @@ export function StockTable({ initialRows }: StockTableProps) {
                 <th className="px-4 py-3 font-medium">市场</th>
                 <th className="px-4 py-3 font-medium">价格</th>
                 <th className="px-4 py-3 font-medium">涨跌幅</th>
-                <th className="px-4 py-3 font-medium">抓取时间</th>
                 <th className="px-4 py-3 font-medium">市场状态</th>
                 <th className="px-4 py-3 font-medium">新闻</th>
                 <th className="px-4 py-3 font-medium">数据</th>
@@ -314,12 +340,9 @@ export function StockTable({ initialRows }: StockTableProps) {
                     <td className={cn("px-4 py-4 font-semibold", changeColorClass(quote?.changePercent))}>
                       {quote ? formatPercent(quote.changePercent) : "-"}
                     </td>
-                    <td className="px-4 py-4 text-muted">
-                      {quote ? formatClockTime(quote.fetchedAt ?? quote.quoteTime) : "-"}
-                    </td>
                     <td className="px-4 py-4">
-                      <Badge tone={quote?.marketStatus === "open" ? "green" : "neutral"}>
-                        {quote?.marketStatus === "open" ? "交易中" : "已休市"}
+                      <Badge tone={marketStatusTone(quote?.marketStatus)}>
+                        {marketStatusLabel(quote?.marketStatus)}
                       </Badge>
                     </td>
                     <td className="px-4 py-4 text-muted">{row.todayNewsCount} 条</td>
@@ -347,17 +370,16 @@ export function StockTable({ initialRows }: StockTableProps) {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label="查看详情"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setSelectedRow(row);
-                          }}
+                        <a
+                          href={xueqiuStockUrl(row.normalizedSymbol)}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label="打开雪球"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted transition hover:bg-black/5 hover:text-ink"
+                          onClick={(event) => event.stopPropagation()}
                         >
                           <Info className="h-4 w-4" />
-                        </Button>
+                        </a>
                         <Link
                           href={`/chat?q=${encodeURIComponent(`${row.name} 今天为什么波动？`)}`}
                           aria-label="追问 Chat"
@@ -467,7 +489,7 @@ function StockDetailDrawer({
               />
               <Metric label="抓取时间" value={quote ? formatClockTime(quote.fetchedAt ?? quote.quoteTime) : "-"} />
               <Metric label="行情时间" value={quote ? formatClockTime(quote.quoteTime) : "-"} />
-              <Metric label="市场状态" value={quote?.marketStatus === "open" ? "交易中" : "已休市"} />
+              <Metric label="市场状态" value={marketStatusLabel(quote?.marketStatus)} />
             </div>
           </section>
 

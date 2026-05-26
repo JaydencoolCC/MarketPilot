@@ -86,7 +86,7 @@ async function importLongbridgeSdk(): Promise<LongbridgeModule> {
     } catch {
       throw new AppError(
         "PROVIDER_UNAVAILABLE",
-        "未安装 Longbridge Node SDK。请先运行 npm install longbridge，或继续使用 QUOTE_PROVIDER=mock。",
+        "未安装 Longbridge Node SDK。请先运行 npm install longbridge，或切换 QUOTE_PROVIDER=auto、sina 或 yahoo。",
         503,
       );
     }

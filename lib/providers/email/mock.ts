@@ -10,4 +10,8 @@ export class MockEmailProvider implements EmailProvider {
         : "每日摘要已在 mock provider 中模拟发送。",
     };
   }
+
+  async verifyConnection(): Promise<string> {
+    return "测试环境中的 mock 邮件 provider 可用。";
+  }
 }

@@ -40,6 +40,12 @@ describe("mock providers", () => {
       watchlist: [],
       quotes: [],
       articles: [],
+      context: {
+        now: "2026-05-23T04:00:00.000Z",
+        timezone: "Asia/Shanghai",
+        today: "2026-05-23",
+        localTime: "2026/05/23 12:00:00",
+      },
       history: [
         {
           id: "history-1",

@@ -3,13 +3,14 @@ import type { DigestPreview } from "@/lib/domain/types";
 import { resolveModelConfig } from "@/lib/providers/model/config";
 import { MockModelProvider } from "@/lib/providers/model/mock";
 import { OpenAICompatibleModelProvider } from "@/lib/providers/model/openai-compatible";
+import { createChatRuntimeContext } from "@/lib/providers/model/runtime-context";
 import type { ChatChunk, ChatRequest, DigestPrompt, ModelProvider } from "@/lib/providers/model/types";
 
 class UnimplementedModelProvider implements ModelProvider {
   async *streamChat(_input: ChatRequest): AsyncIterable<ChatChunk> {
     throw new AppError(
       "PROVIDER_UNAVAILABLE",
-      "真实模型 provider 尚未接入，请先使用 MODEL_PROVIDER=mock。",
+      "真实模型尚未配置，请填写 Base URL、模型名称和 API Key。",
       503,
     );
   }
@@ -17,7 +18,7 @@ class UnimplementedModelProvider implements ModelProvider {
   async generateDigest(_input: DigestPrompt): Promise<DigestPreview> {
     throw new AppError(
       "PROVIDER_UNAVAILABLE",
-      "真实模型 provider 尚未接入，请先使用 MODEL_PROVIDER=mock。",
+      "真实模型尚未配置，请填写 Base URL、模型名称和 API Key。",
       503,
     );
   }
@@ -72,6 +73,7 @@ export async function testModelConnection() {
     watchlist: [],
     quotes: [],
     articles: [],
+    context: createChatRuntimeContext(),
   })) {
     chunks.push(chunk.content);
     if (chunks.join("").length >= 12) break;

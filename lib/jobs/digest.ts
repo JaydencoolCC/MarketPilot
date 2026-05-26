@@ -1,24 +1,21 @@
 import { AppError } from "@/lib/domain/errors";
 import type { DigestPreview, EmailDigestSetting } from "@/lib/domain/types";
 import {
-  createNewsDigest,
-  findNewsDigest,
-  finishJobRun,
   getEmailSetting,
   getWatchlistItems,
-  markNewsDigestEmailStatus,
   refreshQuotes,
-  saveNewsArticles,
-  startJobRun,
 } from "@/lib/db/store";
 import { getEmailProvider } from "@/lib/providers/email";
 import { getModelProvider } from "@/lib/providers/model";
 import { getNewsProvider } from "@/lib/providers/news";
+import {
+  getLocalDigestRecord,
+  saveLocalDigestRecord,
+} from "@/lib/settings/local-digest-state";
 
 export type DigestBuildResult = {
   setting: EmailDigestSetting;
   digest: DigestPreview;
-  articleIds: string[];
 };
 
 export type DailyDigestSendResult = {
@@ -31,7 +28,6 @@ export type DailyDigestJobResult = {
   status: "sent" | "skipped" | "failed";
   message: string;
   digest?: DigestPreview;
-  jobRunId: string;
 };
 
 export async function buildDigestPreview(): Promise<DigestBuildResult> {
@@ -39,66 +35,16 @@ export async function buildDigestPreview(): Promise<DigestBuildResult> {
   const watchlist = await getWatchlistItems();
   const symbols = watchlist.map((item) => item.normalizedSymbol);
   const quotes = await refreshQuotes(symbols);
-  const articles = await saveNewsArticles(
-    await getNewsProvider().fetchMarketNews({
-      symbols,
-      markets: setting.markets,
-      hours: 24,
-    }),
-  );
-  let digest: DigestPreview;
-  try {
-    digest = await (await getModelProvider()).generateDigest({ watchlist, quotes, articles });
-  } catch (error) {
-    if (!(error instanceof AppError) || error.code !== "PROVIDER_UNAVAILABLE") {
-      throw error;
-    }
-    digest = buildBasicDigest({ watchlist, quotes, articles });
-  }
+  const articles = await getNewsProvider().fetchMarketNews({
+    symbols,
+    markets: setting.markets,
+    hours: 24,
+  });
+  const digest = await (await getModelProvider()).generateDigest({ watchlist, quotes, articles });
 
   return {
     setting,
     digest,
-    articleIds: articles.map((article) => article.id),
-  };
-}
-
-function buildBasicDigest({
-  watchlist,
-  quotes,
-  articles,
-}: {
-  watchlist: Awaited<ReturnType<typeof getWatchlistItems>>;
-  quotes: Awaited<ReturnType<typeof refreshQuotes>>;
-  articles: Awaited<ReturnType<typeof saveNewsArticles>>;
-}): DigestPreview {
-  const topArticles = articles.slice(0, 3);
-  const quoteLines = watchlist.slice(0, 6).map((item) => {
-    const quote = quotes.find((entry) => entry.symbol === item.normalizedSymbol);
-    if (!quote) return `${item.name}（${item.normalizedSymbol}）：暂无最新行情。`;
-    return `${item.name}（${item.normalizedSymbol}）：${quote.price} ${quote.currency}，涨跌幅 ${quote.changePercent.toFixed(2)}%，行情时间 ${new Date(quote.quoteTime).toLocaleString("zh-CN")}。`;
-  });
-
-  return {
-    title: "今日重点财经摘要",
-    generatedAt: new Date().toISOString(),
-    sections: [
-      {
-        heading: "市场重点",
-        body: topArticles.length
-          ? topArticles.map((article) => article.summary || article.title).join(" ")
-          : "过去 24 小时没有找到与当前关注市场高度相关的重要新闻。",
-        sources: topArticles.map((article) => ({ title: article.title, url: article.url })),
-      },
-      {
-        heading: "自选股变化",
-        body: quoteLines.length ? quoteLines.join(" ") : "还没有自选股，暂时无法整理个股变化。",
-      },
-      {
-        heading: "说明",
-        body: "当前模型配置不可用，本邮件使用行情和新闻数据生成基础摘要。",
-      },
-    ],
   };
 }
 
@@ -115,33 +61,34 @@ export async function sendDailyDigest(options: { force?: boolean } = {}) {
   }
 
   const date = digestDateForTimezone(new Date(), setting.timezone);
-  const existing = await findNewsDigest({ date, recipientEmail });
+  const dateKey = date.toISOString();
+  const existing = getLocalDigestRecord({ date: dateKey, recipientEmail });
 
-  if (existing?.emailStatus === "sent" && !options.force) {
+  if (existing?.status === "sent" && !options.force) {
     return {
       status: "skipped",
       message: "今天的每日摘要已经发送过，不会重复发送。",
-      digest: parseDigestContent(existing.content),
+      digest: parseStoredDigest(existing),
     } satisfies DailyDigestSendResult;
   }
 
   const built = existing
     ? {
         setting,
-        digest: parseDigestContent(existing.content),
-        articleIds: existing.articleIds,
+        digest: parseStoredDigest(existing),
       }
     : await buildDigestPreview();
 
   const digestRecord =
     existing ??
-    (await createNewsDigest({
-      date,
+    saveLocalDigestRecord({
+      date: dateKey,
       recipientEmail,
-      title: built.digest.title,
-      content: JSON.stringify(built.digest),
-      articleIds: built.articleIds,
-    }));
+      status: "draft",
+      digest: built.digest,
+      digestTitle: built.digest.title,
+      generatedAt: built.digest.generatedAt,
+    });
 
   try {
     const result = await (await getEmailProvider()).sendDigest({
@@ -151,48 +98,49 @@ export async function sendDailyDigest(options: { force?: boolean } = {}) {
       },
       digest: built.digest,
     });
-    await markNewsDigestEmailStatus(digestRecord.id, "sent");
+    saveLocalDigestRecord({
+      ...digestRecord,
+      status: "sent",
+      sentAt: new Date().toISOString(),
+      digest: built.digest,
+      digestTitle: built.digest.title,
+      generatedAt: built.digest.generatedAt,
+    });
     return {
       status: "sent",
       message: result.message,
       digest: built.digest,
     } satisfies DailyDigestSendResult;
   } catch (error) {
-    await markNewsDigestEmailStatus(digestRecord.id, "failed");
+    saveLocalDigestRecord({
+      ...digestRecord,
+      status: "failed",
+      digest: built.digest,
+      digestTitle: built.digest.title,
+      generatedAt: built.digest.generatedAt,
+    });
     throw error;
   }
 }
 
 export async function runDailyDigestJob(now = new Date()): Promise<DailyDigestJobResult> {
-  const jobRun = await startJobRun("daily-digest");
-
   try {
     const setting = await getEmailSetting();
     const due = isDailyDigestDue(setting, now);
 
     if (!due.due) {
-      await finishJobRun(jobRun.id, "success");
       return {
         status: "skipped",
         message: due.message,
-        jobRunId: jobRun.id,
       };
     }
 
-    const result = await sendDailyDigest();
-    await finishJobRun(jobRun.id, "success");
-    return {
-      ...result,
-      jobRunId: jobRun.id,
-    };
+    return await sendDailyDigest();
   } catch (error) {
     const message = error instanceof Error ? error.message : "每日摘要任务失败。";
-    const code = error instanceof AppError ? error.code : "UNKNOWN_ERROR";
-    await finishJobRun(jobRun.id, "failed", { code, message });
     return {
       status: "failed",
       message,
-      jobRunId: jobRun.id,
     };
   }
 }
@@ -258,23 +206,22 @@ function timePartsForTimezone(date: Date, timezone: string) {
   };
 }
 
-function parseDigestContent(content: string): DigestPreview {
-  try {
-    const parsed = JSON.parse(content) as DigestPreview;
-    if (parsed.title && parsed.generatedAt && Array.isArray(parsed.sections)) {
-      return parsed;
-    }
-  } catch {
-    // Fall through to a readable fallback rather than failing idempotency checks.
+function parseStoredDigest(record: {
+  digest?: DigestPreview;
+  digestTitle?: string;
+  generatedAt?: string;
+}) {
+  if (record.digest) {
+    return record.digest;
   }
 
   return {
-    title: "今日重点财经摘要",
-    generatedAt: new Date().toISOString(),
+    title: record.digestTitle ?? "今日重点财经摘要",
+    generatedAt: record.generatedAt ?? new Date().toISOString(),
     sections: [
       {
         heading: "摘要记录",
-        body: content || "今天的摘要已经生成，但内容格式需要重新生成后查看。",
+        body: "今天的摘要已经发送，如需查看详情请重新生成预览。",
       },
     ],
   };

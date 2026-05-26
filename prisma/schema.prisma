@@ -12,19 +12,6 @@ enum Market {
   CN
 }
 
-enum JobStatus {
-  pending
-  running
-  success
-  failed
-}
-
-enum EmailStatus {
-  draft
-  sent
-  failed
-}
-
 model WatchlistItem {
   id               String          @id @default(cuid())
   symbol           String
@@ -32,16 +19,47 @@ model WatchlistItem {
   market           Market
   name             String
   currency         String
+  costPrice        Decimal?        @db.Decimal(18, 6)
+  shares           Decimal?        @db.Decimal(18, 6)
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   quoteSnapshots   QuoteSnapshot[]
+}
+
+model FundWatchlistItem {
+  id               String         @id @default(cuid())
+  code             String
+  normalizedSymbol String         @unique
+  type             String
+  market           Market?
+  name             String
+  currency         String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  snapshots        FundSnapshot[]
+}
+
+model FundSnapshot {
+  id              String            @id @default(cuid())
+  fundItemId      String
+  fundItem        FundWatchlistItem @relation(fields: [fundItemId], references: [id], onDelete: Cascade)
+  symbol          String            @unique
+  netValue        Decimal           @db.Decimal(18, 6)
+  estimateValue   Decimal?          @db.Decimal(18, 6)
+  changePercent   Decimal           @db.Decimal(12, 6)
+  currency        String
+  provider        String
+  quoteTime       DateTime
+  errorCode       String?
+  errorMessage    String?
+  createdAt       DateTime          @default(now())
 }
 
 model QuoteSnapshot {
   id              String        @id @default(cuid())
   watchlistItemId String
   watchlistItem   WatchlistItem @relation(fields: [watchlistItemId], references: [id], onDelete: Cascade)
-  symbol          String
+  symbol          String        @unique
   price           Decimal       @db.Decimal(18, 6)
   change          Decimal       @db.Decimal(18, 6)
   changePercent   Decimal       @db.Decimal(12, 6)
@@ -52,88 +70,4 @@ model QuoteSnapshot {
   errorCode       String?
   errorMessage    String?
   createdAt       DateTime      @default(now())
-
-  @@index([symbol, quoteTime])
-}
-
-model NewsArticle {
-  id              String   @id @default(cuid())
-  title           String
-  summary         String
-  url             String   @unique
-  source          String
-  symbols         String[]
-  market          String
-  publishedAt     DateTime
-  importanceScore Int
-  createdAt       DateTime @default(now())
-}
-
-model EmailDigestSetting {
-  id             String   @id @default(cuid())
-  enabled        Boolean  @default(false)
-  recipientEmail String
-  sendTime       String
-  timezone       String
-  markets        Market[]
-  watchlistOnly  Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-}
-
-model NewsDigest {
-  id             String      @id @default(cuid())
-  date           DateTime
-  recipientEmail String
-  title          String
-  content        String
-  articleIds     String[]
-  emailStatus    EmailStatus @default(draft)
-  sentAt         DateTime?
-  createdAt      DateTime    @default(now())
-
-  @@unique([date, recipientEmail])
-}
-
-model ChatSession {
-  id        String        @id @default(cuid())
-  title     String?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  messages  ChatMessage[]
-}
-
-model ChatMessage {
-  id        String      @id @default(cuid())
-  sessionId String
-  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  role      String
-  content   String
-  metadata  Json?
-  createdAt DateTime    @default(now())
-}
-
-model JobRun {
-  id           String    @id @default(cuid())
-  jobType      String
-  status       JobStatus
-  startedAt    DateTime  @default(now())
-  finishedAt   DateTime?
-  errorCode    String?
-  errorMessage String?
-}
-
-model IntegrationSetting {
-  id              String    @id @default(cuid())
-  kind            String    @unique
-  provider        String
-  baseUrl         String?
-  modelName       String?
-  encryptedSecret String?
-  secretPreview   String?
-  lastTestStatus  String    @default("untested")
-  lastTestMessage String?
-  lastTestedAt    DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
 }

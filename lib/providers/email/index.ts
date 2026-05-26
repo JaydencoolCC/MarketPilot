@@ -12,6 +12,14 @@ class UnimplementedEmailProvider implements EmailProvider {
       503,
     );
   }
+
+  async verifyConnection(): Promise<string> {
+    throw new AppError(
+      "PROVIDER_UNAVAILABLE",
+      "真实邮件未配置，请填写 SMTP 授权码并保存邮件连接。",
+      503,
+    );
+  }
 }
 
 export async function getEmailProvider(): Promise<EmailProvider> {

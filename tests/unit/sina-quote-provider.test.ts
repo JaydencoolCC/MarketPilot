@@ -99,4 +99,16 @@ describe("SinaQuoteProvider", () => {
       name: "腾讯控股",
     });
   });
+
+  it("does not infer market status when Sina does not return an explicit state", async () => {
+    const body =
+      'var hq_str_sz000725="京东方A,4.69,4.69,5.16,5.16,4.69,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2026-05-22,14:30:00,00,";';
+    global.fetch = vi.fn(async () => new Response(body)) as typeof fetch;
+
+    const [quote] = await new SinaQuoteProvider().getQuotes(["000725.SZ"]);
+    expect(quote).toMatchObject({
+      symbol: "000725.SZ",
+      marketStatus: "unknown",
+    });
+  });
 });

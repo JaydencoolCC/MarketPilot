@@ -2,7 +2,7 @@ export type Market = "US" | "HK" | "CN";
 
 export type DataStatus = "ok" | "stale" | "error";
 
-export type MarketStatus = "open" | "closed" | "pre_market" | "after_hours";
+export type MarketStatus = "open" | "closed" | "pre_market" | "after_hours" | "unknown";
 
 export type WatchlistItem = {
   id: string;
@@ -11,6 +11,8 @@ export type WatchlistItem = {
   market: Market;
   name: string;
   currency: string;
+  costPrice?: number;
+  shares?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -43,6 +45,81 @@ export type WatchlistRow = WatchlistItem & {
   quote: Quote | null;
   todayNewsCount: number;
   dataStatus: DataStatus;
+};
+
+export type FundType = "mutual_fund" | "etf";
+
+export type FundItem = {
+  id: string;
+  code: string;
+  normalizedSymbol: string;
+  type: FundType;
+  market?: Market;
+  name: string;
+  currency: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FundSnapshot = {
+  symbol: string;
+  netValue: number;
+  changePercent: number;
+  estimateValue?: number;
+  currency: string;
+  provider: string;
+  quoteTime: string;
+  fetchedAt?: string;
+  status: DataStatus;
+  errorCode?: string;
+  errorMessage?: string;
+};
+
+export type FundRow = FundItem & {
+  snapshot: FundSnapshot | null;
+  dataStatus: DataStatus;
+};
+
+export type FundSearchResult = {
+  code: string;
+  normalizedSymbol: string;
+  type: FundType;
+  market?: Market;
+  name: string;
+  currency: string;
+};
+
+export type FundHolding = {
+  rank: number;
+  symbol: string;
+  name: string;
+  weightPercent: number;
+  shares?: number;
+  marketValue?: number;
+  asOfDate?: string;
+  provider: string;
+};
+
+export type GoldScope = "international" | "domestic";
+
+export type GoldRange = "1d" | "1m" | "3m" | "6m" | "1y";
+
+export type GoldPoint = {
+  date: string;
+  price: number;
+};
+
+export type GoldHistory = {
+  scope: GoldScope;
+  range: GoldRange;
+  currency: string;
+  unit: string;
+  provider: string;
+  updatedAt: string;
+  currentPrice: number;
+  change: number;
+  changePercent: number;
+  points: GoldPoint[];
 };
 
 export type NewsArticle = {
@@ -78,28 +155,6 @@ export type DigestPreview = {
     body: string;
     sources?: Array<{ title: string; url: string }>;
   }>;
-};
-
-export type NewsDigestRecord = {
-  id: string;
-  date: string;
-  recipientEmail: string;
-  title: string;
-  content: string;
-  articleIds: string[];
-  emailStatus: "draft" | "sent" | "failed";
-  sentAt?: string;
-  createdAt: string;
-};
-
-export type JobRunRecord = {
-  id: string;
-  jobType: string;
-  status: "pending" | "running" | "success" | "failed";
-  startedAt: string;
-  finishedAt?: string;
-  errorCode?: string;
-  errorMessage?: string;
 };
 
 export type ChatRole = "system" | "user" | "assistant";

@@ -1,32 +1,31 @@
 import type {
-  ChatMessage,
   EmailDigestSetting,
+  FundItem,
+  FundRow,
+  FundSearchResult,
+  FundSnapshot,
   IntegrationKind,
   IntegrationSetting,
-  JobRunRecord,
   Market,
-  NewsArticle,
-  NewsDigestRecord,
   PublicIntegrationSetting,
   Quote,
   WatchlistItem,
   WatchlistRow,
 } from "@/lib/domain/types";
 import { AppError } from "@/lib/domain/errors";
+import { fundFromSymbol } from "@/lib/domain/funds";
 import { securityFromSymbol } from "@/lib/domain/symbols";
 import {
   getPrisma,
   shouldUseDatabase,
-  type ChatMessageRecord,
-  type ChatSessionRecord,
-  type JobRunRecord as PrismaJobRunRecord,
-  type NewsDigestRecord as PrismaNewsDigestRecord,
+  type FundSnapshotRecord,
+  type FundWatchlistRecord,
   type QuoteSnapshotRecord,
   type WatchlistRecord,
 } from "@/lib/db/prisma";
+import { getFundProvider } from "@/lib/providers/funds";
 import { getNewsProvider } from "@/lib/providers/news";
 import { getQuoteProvider } from "@/lib/providers/quotes";
-import { decryptSecret, maskSecret } from "@/lib/utils/secrets";
 import {
   getLocalEmailSetting,
   getLocalIntegrationSetting,
@@ -34,15 +33,16 @@ import {
   saveLocalEmailSetting,
   saveLocalIntegrationSetting,
 } from "@/lib/settings/local-settings";
+import { resetLocalDigestStateForTests } from "@/lib/settings/local-digest-state";
+import { maskSecret } from "@/lib/utils/secrets";
 
 type StoreState = {
   watchlist: WatchlistItem[];
   quotes: Record<string, Quote>;
+  funds: FundItem[];
+  fundSnapshots: Record<string, FundSnapshot>;
   emailSetting: EmailDigestSetting;
   integrations: Partial<Record<IntegrationKind, IntegrationSetting>>;
-  chatMessages: ChatMessage[];
-  newsDigests: NewsDigestRecord[];
-  jobRuns: JobRunRecord[];
 };
 
 const globalStore = globalThis as typeof globalThis & {
@@ -58,6 +58,8 @@ function createInitialStore(): StoreState {
   return {
     watchlist: [],
     quotes: {},
+    funds: [],
+    fundSnapshots: {},
     emailSetting: {
       id: "default-email-setting",
       enabled: false,
@@ -70,9 +72,6 @@ function createInitialStore(): StoreState {
       updatedAt: timestamp,
     },
     integrations: {},
-    chatMessages: [],
-    newsDigests: [],
-    jobRuns: [],
   };
 }
 
@@ -94,6 +93,8 @@ function watchlistItemFromRecord(record: WatchlistRecord): WatchlistItem {
     market: record.market,
     name,
     currency: record.currency,
+    costPrice: record.costPrice === null ? undefined : Number(record.costPrice),
+    shares: record.shares === null ? undefined : Number(record.shares),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   };
@@ -101,8 +102,13 @@ function watchlistItemFromRecord(record: WatchlistRecord): WatchlistItem {
 
 async function resolveSecurityForWatchlist(input: { symbol: string; market?: Market }) {
   const fallback = securityFromSymbol(input.symbol, input.market);
+  const searchTerms = [...new Set([fallback.normalizedSymbol, fallback.symbol])];
+
   try {
-    const results = await getQuoteProvider().searchSymbols(fallback.normalizedSymbol, fallback.market);
+    const resultGroups = await Promise.all(
+      searchTerms.map((term) => getQuoteProvider().searchSymbols(term, fallback.market)),
+    );
+    const results = resultGroups.flat();
     return results.find((item) => item.normalizedSymbol === fallback.normalizedSymbol) ?? fallback;
   } catch {
     return fallback;
@@ -126,38 +132,33 @@ function quoteFromSnapshot(snapshot: QuoteSnapshotRecord): Quote {
   };
 }
 
-function newsDigestFromRecord(record: PrismaNewsDigestRecord): NewsDigestRecord {
+function fundItemFromRecord(record: FundWatchlistRecord): FundItem {
   return {
     id: record.id,
-    date: record.date.toISOString(),
-    recipientEmail: record.recipientEmail,
-    title: record.title,
-    content: record.content,
-    articleIds: record.articleIds,
-    emailStatus: record.emailStatus,
-    sentAt: record.sentAt?.toISOString(),
+    code: record.code,
+    normalizedSymbol: record.normalizedSymbol,
+    type: record.type as FundItem["type"],
+    market: record.market ?? undefined,
+    name: record.name,
+    currency: record.currency,
     createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
   };
 }
 
-function jobRunFromRecord(record: PrismaJobRunRecord): JobRunRecord {
+function fundSnapshotFromRecord(snapshot: FundSnapshotRecord): FundSnapshot {
   return {
-    id: record.id,
-    jobType: record.jobType,
-    status: record.status,
-    startedAt: record.startedAt.toISOString(),
-    finishedAt: record.finishedAt?.toISOString(),
-    errorCode: record.errorCode ?? undefined,
-    errorMessage: record.errorMessage ?? undefined,
-  };
-}
-
-function chatMessageFromRecord(record: ChatMessageRecord): ChatMessage {
-  return {
-    id: record.id,
-    role: record.role as ChatMessage["role"],
-    content: record.content,
-    createdAt: record.createdAt.toISOString(),
+    symbol: snapshot.symbol,
+    netValue: Number(snapshot.netValue),
+    estimateValue: snapshot.estimateValue === null ? undefined : Number(snapshot.estimateValue),
+    changePercent: Number(snapshot.changePercent),
+    currency: snapshot.currency,
+    provider: snapshot.provider,
+    quoteTime: snapshot.quoteTime.toISOString(),
+    fetchedAt: snapshot.createdAt?.toISOString(),
+    status: snapshot.errorCode ? "error" : "ok",
+    errorCode: snapshot.errorCode ?? undefined,
+    errorMessage: snapshot.errorMessage ?? undefined,
   };
 }
 
@@ -174,7 +175,7 @@ export async function listWatchlistRows(): Promise<WatchlistRow[]> {
       },
     })) as Array<WatchlistRecord & { quoteSnapshots: QuoteSnapshotRecord[] }>;
     const symbols = records.map((item) => item.normalizedSymbol);
-    const articles = await getNewsProvider().fetchMarketNews({ symbols, hours: 24 });
+    const articles = await fetchRecentNewsSafely(symbols);
     const newsCountBySymbol = new Map<string, number>();
 
     for (const article of articles) {
@@ -195,9 +196,8 @@ export async function listWatchlistRows(): Promise<WatchlistRow[]> {
   }
 
   const store = getStore();
-  const newsProvider = getNewsProvider();
   const symbols = store.watchlist.map((item) => item.normalizedSymbol);
-  const articles = await newsProvider.fetchMarketNews({ symbols, hours: 24 });
+  const articles = await fetchRecentNewsSafely(symbols);
   const newsCountBySymbol = new Map<string, number>();
 
   for (const article of articles) {
@@ -215,6 +215,14 @@ export async function listWatchlistRows(): Promise<WatchlistRow[]> {
       dataStatus: quote?.status ?? "stale",
     };
   });
+}
+
+async function fetchRecentNewsSafely(symbols: string[]) {
+  try {
+    return await getNewsProvider().fetchMarketNews({ symbols, hours: 24 });
+  } catch {
+    return [];
+  }
 }
 
 export async function addWatchlistItem(input: { symbol: string; market?: Market }) {
@@ -271,12 +279,60 @@ export async function addWatchlistItem(input: { symbol: string; market?: Market 
     market: security.market,
     name: security.name,
     currency: security.currency,
+    costPrice: undefined,
+    shares: undefined,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
 
   store.watchlist.unshift(item);
   await refreshQuotes([item.normalizedSymbol]);
+  return item;
+}
+
+export async function updateWatchlistHolding(
+  id: string,
+  input: { costPrice?: number | null; shares?: number | null },
+) {
+  const clearing = input.costPrice === null && input.shares === null;
+  const costPrice = input.costPrice;
+  const shares = input.shares;
+  const holding =
+    typeof costPrice === "number" && typeof shares === "number" ? { costPrice, shares } : null;
+
+  if (!clearing && !holding) {
+    throw new AppError("VALIDATION_ERROR", "请同时填写成本价和股票数。", 400);
+  }
+
+  if (holding && (holding.costPrice <= 0 || holding.shares <= 0)) {
+    throw new AppError("VALIDATION_ERROR", "成本价和股票数必须大于 0。", 400);
+  }
+
+  if (shouldUseDatabase()) {
+    const db = await getPrisma();
+    const item = await db.watchlistItem.findUnique({ where: { id } });
+    if (!item) {
+      throw new AppError("NOT_FOUND", "没有找到这只自选股。", 404);
+    }
+
+    const updated = await db.watchlistItem.update({
+      where: { id },
+      data: clearing
+        ? { costPrice: null, shares: null }
+        : { costPrice: holding!.costPrice.toString(), shares: holding!.shares.toString() },
+    });
+    return watchlistItemFromRecord(updated);
+  }
+
+  const store = getStore();
+  const item = store.watchlist.find((entry) => entry.id === id);
+  if (!item) {
+    throw new AppError("NOT_FOUND", "没有找到这只自选股。", 404);
+  }
+
+  item.costPrice = clearing ? undefined : holding!.costPrice;
+  item.shares = clearing ? undefined : holding!.shares;
+  item.updatedAt = now();
   return item;
 }
 
@@ -331,9 +387,8 @@ export async function refreshQuotes(symbols?: string[]) {
       where: { normalizedSymbol: { in: targetSymbols } },
       select: { id: true, normalizedSymbol: true },
     })) as Array<{ id: string; normalizedSymbol: string }>;
-    const itemBySymbol = new Map(
-      watchlistItems.map((item) => [item.normalizedSymbol, item.id]),
-    );
+    const itemBySymbol = new Map(watchlistItems.map((item) => [item.normalizedSymbol, item.id]));
+    const snapshotIdBySymbol = await latestQuoteSnapshotIdsFromDatabase(db, targetSymbols);
 
     await db.$transaction(
       quotes.flatMap((quote) => {
@@ -342,21 +397,29 @@ export async function refreshQuotes(symbols?: string[]) {
           return [];
         }
 
-        return db.quoteSnapshot.create({
-          data: {
-            watchlistItemId,
-            symbol: quote.symbol,
-            price: quote.price.toString(),
-            change: quote.change.toString(),
-            changePercent: quote.changePercent.toString(),
-            currency: quote.currency,
-            marketStatus: quote.marketStatus,
-            provider: quote.provider,
-            quoteTime: new Date(quote.quoteTime),
-            errorCode: quote.errorCode,
-            errorMessage: quote.errorMessage,
-          },
-        });
+        const data = {
+          watchlistItemId,
+          symbol: quote.symbol,
+          price: quote.price.toString(),
+          change: quote.change.toString(),
+          changePercent: quote.changePercent.toString(),
+          currency: quote.currency,
+          marketStatus: quote.marketStatus,
+          provider: quote.provider,
+          quoteTime: new Date(quote.quoteTime),
+          errorCode: quote.errorCode,
+          errorMessage: quote.errorMessage,
+        };
+        const snapshotId = snapshotIdBySymbol.get(quote.symbol);
+
+        return snapshotId
+          ? db.quoteSnapshot.update({
+              where: { id: snapshotId },
+              data,
+            })
+          : db.quoteSnapshot.create({
+              data,
+            });
       }),
     );
 
@@ -421,13 +484,32 @@ async function latestQuotesFromDatabase(
   return latest;
 }
 
+async function latestQuoteSnapshotIdsFromDatabase(
+  db: Awaited<ReturnType<typeof getPrisma>>,
+  symbols: string[],
+) {
+  const snapshots = await db.quoteSnapshot.findMany({
+    where: { symbol: { in: symbols } },
+    orderBy: [{ quoteTime: "desc" }, { createdAt: "desc" }],
+  });
+  const latest = new Map<string, string>();
+
+  for (const snapshot of snapshots) {
+    if (!latest.has(snapshot.symbol)) {
+      latest.set(snapshot.symbol, snapshot.id);
+    }
+  }
+
+  return latest;
+}
+
 function buildProviderFailureQuotes(
   symbols: string[],
   latestQuotes: Record<string, Quote>,
   error: unknown,
 ) {
   const message = error instanceof Error ? error.message : "行情 provider 暂时不可用。";
-  const provider = process.env.QUOTE_PROVIDER ?? "mock";
+  const provider = process.env.QUOTE_PROVIDER ?? "auto";
   const quoteTime = new Date().toISOString();
   const fetchedAt = new Date().toISOString();
 
@@ -441,7 +523,7 @@ function buildProviderFailureQuotes(
       change: previous?.change ?? 0,
       changePercent: previous?.changePercent ?? 0,
       currency: previous?.currency ?? security.currency,
-      marketStatus: previous?.marketStatus ?? "closed",
+      marketStatus: previous?.marketStatus ?? "unknown",
       provider,
       quoteTime: previous?.quoteTime ?? quoteTime,
       fetchedAt,
@@ -469,7 +551,6 @@ export async function getQuoteSnapshots(symbols?: string[]) {
     const db = await getPrisma();
     const records = await db.quoteSnapshot.findMany({
       where: symbols?.length ? { symbol: { in: symbols } } : undefined,
-      distinct: ["symbol"],
       orderBy: [{ symbol: "asc" }, { quoteTime: "desc" }, { createdAt: "desc" }],
     });
     return records.map(quoteFromSnapshot);
@@ -480,68 +561,267 @@ export async function getQuoteSnapshots(symbols?: string[]) {
   return selected.map((symbol) => store.quotes[symbol]).filter(Boolean);
 }
 
-export async function saveNewsArticles(articles: NewsArticle[]) {
-  if (!articles.length || !shouldUseDatabase()) {
-    return articles;
+export async function searchFunds(keyword: string): Promise<FundSearchResult[]> {
+  const query = keyword.trim();
+  if (!query) return [];
+  return getFundProvider().searchFunds(query);
+}
+
+export async function listFundRows(): Promise<FundRow[]> {
+  if (shouldUseDatabase()) {
+    const db = await getPrisma();
+    const records = (await db.fundWatchlistItem.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        snapshots: {
+          orderBy: [{ quoteTime: "desc" }, { createdAt: "desc" }],
+          take: 1,
+        },
+      },
+    })) as Array<FundWatchlistRecord & { snapshots: FundSnapshotRecord[] }>;
+
+    return records.map((record) => {
+      const snapshot = record.snapshots[0] ? fundSnapshotFromRecord(record.snapshots[0]) : null;
+      return {
+        ...fundItemFromRecord(record),
+        snapshot,
+        dataStatus: snapshot?.status ?? "stale",
+      };
+    });
   }
 
-  const db = await getPrisma();
-  await db.$transaction(
-    articles.map((article) =>
-      db.newsArticle.upsert({
-        where: { url: article.url },
-        update: {
-          title: article.title,
-          summary: article.summary,
-          source: article.source,
-          symbols: article.symbols,
-          market: article.market,
-          publishedAt: new Date(article.publishedAt),
-          importanceScore: article.importanceScore,
-        },
-        create: {
-          title: article.title,
-          summary: article.summary,
-          url: article.url,
-          source: article.source,
-          symbols: article.symbols,
-          market: article.market,
-          publishedAt: new Date(article.publishedAt),
-          importanceScore: article.importanceScore,
-        },
-      }),
-    ),
-  );
+  const store = getStore();
+  return store.funds.map((item) => {
+    const snapshot = store.fundSnapshots[item.normalizedSymbol] ?? null;
+    return {
+      ...item,
+      snapshot,
+      dataStatus: snapshot?.status ?? "stale",
+    };
+  });
+}
 
-  return articles;
+export async function addFundItem(input: { symbol: string; type?: FundItem["type"] }) {
+  const fund = fundFromSymbol(input.symbol, input.type);
+  if (shouldUseDatabase()) {
+    const db = await getPrisma();
+    const existing = await db.fundWatchlistItem.findUnique({
+      where: { normalizedSymbol: fund.normalizedSymbol },
+    });
+
+    if (existing) return fundItemFromRecord(existing);
+
+    const created = await db.fundWatchlistItem.create({
+      data: {
+        code: fund.code,
+        normalizedSymbol: fund.normalizedSymbol,
+        type: fund.type,
+        market: fund.market,
+        name: fund.name,
+        currency: fund.currency,
+      },
+    });
+    await refreshFunds([created.normalizedSymbol]);
+    return fundItemFromRecord(created);
+  }
+
+  const store = getStore();
+  const existing = store.funds.find((item) => item.normalizedSymbol === fund.normalizedSymbol);
+  if (existing) return existing;
+
+  const timestamp = now();
+  const item: FundItem = {
+    id: crypto.randomUUID(),
+    code: fund.code,
+    normalizedSymbol: fund.normalizedSymbol,
+    type: fund.type,
+    market: fund.market,
+    name: fund.name,
+    currency: fund.currency,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  store.funds.unshift(item);
+  await refreshFunds([item.normalizedSymbol]);
+  return item;
+}
+
+export async function deleteFundItem(id: string) {
+  if (shouldUseDatabase()) {
+    const db = await getPrisma();
+    const item = await db.fundWatchlistItem.findUnique({ where: { id } });
+    if (!item) {
+      throw new AppError("NOT_FOUND", "没有找到这只基金。", 404);
+    }
+    await db.fundWatchlistItem.delete({ where: { id } });
+    return;
+  }
+
+  const store = getStore();
+  const item = store.funds.find((entry) => entry.id === id);
+  if (!item) {
+    throw new AppError("NOT_FOUND", "没有找到这只基金。", 404);
+  }
+  store.funds = store.funds.filter((entry) => entry.id !== id);
+  delete store.fundSnapshots[item.normalizedSymbol];
+}
+
+export async function refreshFunds(symbols?: string[]) {
+  if (shouldUseDatabase()) {
+    const db = await getPrisma();
+    const targetSymbols =
+      symbols ??
+      (
+        await db.fundWatchlistItem.findMany({
+          select: { normalizedSymbol: true },
+          orderBy: { createdAt: "desc" },
+        })
+      ).map((item) => item.normalizedSymbol);
+
+    if (!targetSymbols.length) return [];
+
+    const snapshots = await getFundSnapshotsSafely(targetSymbols);
+    const fundItems = (await db.fundWatchlistItem.findMany({
+      where: { normalizedSymbol: { in: targetSymbols } },
+      select: { id: true, normalizedSymbol: true },
+    })) as Array<{ id: string; normalizedSymbol: string }>;
+    const idBySymbol = new Map(fundItems.map((item) => [item.normalizedSymbol, item.id]));
+    const snapshotIdBySymbol = await latestFundSnapshotIdsFromDatabase(db, targetSymbols);
+
+    await db.$transaction(
+      snapshots.flatMap((snapshot) => {
+        const fundItemId = idBySymbol.get(snapshot.symbol);
+        if (!fundItemId) return [];
+
+        const data = {
+          fundItemId,
+          symbol: snapshot.symbol,
+          netValue: snapshot.netValue.toString(),
+          estimateValue: snapshot.estimateValue?.toString(),
+          changePercent: snapshot.changePercent.toString(),
+          currency: snapshot.currency,
+          provider: snapshot.provider,
+          quoteTime: new Date(snapshot.quoteTime),
+          errorCode: snapshot.errorCode,
+          errorMessage: snapshot.errorMessage,
+        };
+        const snapshotId = snapshotIdBySymbol.get(snapshot.symbol);
+
+        return snapshotId
+          ? db.fundSnapshot.update({
+              where: { id: snapshotId },
+              data,
+            })
+          : db.fundSnapshot.create({
+              data,
+            });
+      }),
+    );
+
+    return snapshots;
+  }
+
+  const store = getStore();
+  const targetSymbols = symbols ?? store.funds.map((item) => item.normalizedSymbol);
+  if (!targetSymbols.length) return [];
+
+  const snapshots = await getFundSnapshotsSafely(targetSymbols);
+  for (const snapshot of snapshots) {
+    store.fundSnapshots[snapshot.symbol] = snapshot;
+  }
+  return snapshots;
+}
+
+export async function getLiveFundSnapshots(symbols: string[]) {
+  if (!symbols.length) return [];
+  return getFundSnapshotsSafely(symbols);
+}
+
+async function getFundSnapshotsSafely(symbols: string[]) {
+  try {
+    const fetchedAt = new Date().toISOString();
+    return (await getFundProvider().getFundSnapshots(symbols)).map((snapshot) => ({
+      ...snapshot,
+      fetchedAt,
+    }));
+  } catch (error) {
+    if (shouldUseDatabase()) {
+      const db = await getPrisma();
+      const latestSnapshots = await latestFundSnapshotsFromDatabase(db, symbols);
+      return buildFundFailureSnapshots(symbols, latestSnapshots, error);
+    }
+    return buildFundFailureSnapshots(symbols, getStore().fundSnapshots, error);
+  }
+}
+
+async function latestFundSnapshotsFromDatabase(
+  db: Awaited<ReturnType<typeof getPrisma>>,
+  symbols: string[],
+) {
+  const snapshots = await db.fundSnapshot.findMany({
+    where: { symbol: { in: symbols } },
+    orderBy: [{ quoteTime: "desc" }, { createdAt: "desc" }],
+  });
+  const latest: Record<string, FundSnapshot> = {};
+
+  for (const snapshot of snapshots) {
+    if (!latest[snapshot.symbol]) {
+      latest[snapshot.symbol] = fundSnapshotFromRecord(snapshot);
+    }
+  }
+
+  return latest;
+}
+
+async function latestFundSnapshotIdsFromDatabase(
+  db: Awaited<ReturnType<typeof getPrisma>>,
+  symbols: string[],
+) {
+  const snapshots = await db.fundSnapshot.findMany({
+    where: { symbol: { in: symbols } },
+    orderBy: [{ quoteTime: "desc" }, { createdAt: "desc" }],
+  });
+  const latest = new Map<string, string>();
+
+  for (const snapshot of snapshots) {
+    if (!latest.has(snapshot.symbol)) {
+      latest.set(snapshot.symbol, snapshot.id);
+    }
+  }
+
+  return latest;
+}
+
+function buildFundFailureSnapshots(
+  symbols: string[],
+  latestSnapshots: Record<string, FundSnapshot>,
+  error: unknown,
+): FundSnapshot[] {
+  const message = error instanceof Error ? error.message : "基金数据暂时不可用。";
+  const quoteTime = new Date().toISOString();
+  return symbols.map((symbol) => {
+    const fund = fundFromSymbol(symbol);
+    const previous = latestSnapshots[fund.normalizedSymbol];
+
+    return {
+      symbol: fund.normalizedSymbol,
+      netValue: previous?.netValue ?? 0,
+      estimateValue: previous?.estimateValue,
+      changePercent: previous?.changePercent ?? 0,
+      currency: previous?.currency ?? fund.currency,
+      provider: process.env.FUND_PROVIDER ?? "public",
+      quoteTime: previous?.quoteTime ?? quoteTime,
+      fetchedAt: quoteTime,
+      status: "error",
+      errorCode: "PROVIDER_UNAVAILABLE",
+      errorMessage: `基金数据暂时不可用。${message}`,
+    };
+  });
 }
 
 export async function getEmailSetting() {
   const localSetting = getLocalEmailSetting();
   if (localSetting) return localSetting;
-
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    const record = await db.emailDigestSetting.findFirst({
-      orderBy: { createdAt: "asc" },
-    });
-
-    if (record) {
-      const setting: EmailDigestSetting = {
-        id: record.id,
-        enabled: record.enabled,
-        recipientEmail: record.recipientEmail,
-        sendTime: record.sendTime,
-        timezone: record.timezone,
-        markets: record.markets,
-        watchlistOnly: record.watchlistOnly,
-        createdAt: record.createdAt.toISOString(),
-        updatedAt: record.updatedAt.toISOString(),
-      };
-      return saveLocalEmailSetting(setting);
-    }
-  }
-
   return getStore().emailSetting;
 }
 
@@ -558,270 +838,18 @@ export async function updateEmailSetting(input: Partial<EmailDigestSetting>) {
   return saveLocalEmailSetting(next);
 }
 
-export async function findNewsDigest(input: {
-  date: Date;
-  recipientEmail: string;
-}) {
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    const record = await db.newsDigest.findUnique({
-      where: {
-        date_recipientEmail: {
-          date: input.date,
-          recipientEmail: input.recipientEmail,
-        },
-      },
-    });
-    return record ? newsDigestFromRecord(record) : null;
-  }
-
-  const dateKey = input.date.toISOString();
-  return (
-    getStore().newsDigests.find(
-      (digest) => digest.date === dateKey && digest.recipientEmail === input.recipientEmail,
-    ) ?? null
-  );
-}
-
-export async function createNewsDigest(input: {
-  date: Date;
-  recipientEmail: string;
-  title: string;
-  content: string;
-  articleIds: string[];
-}) {
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    const record = await db.newsDigest.create({
-      data: {
-        date: input.date,
-        recipientEmail: input.recipientEmail,
-        title: input.title,
-        content: input.content,
-        articleIds: input.articleIds,
-      },
-    });
-    return newsDigestFromRecord(record);
-  }
-
-  const record: NewsDigestRecord = {
-    id: crypto.randomUUID(),
-    date: input.date.toISOString(),
-    recipientEmail: input.recipientEmail,
-    title: input.title,
-    content: input.content,
-    articleIds: input.articleIds,
-    emailStatus: "draft",
-    createdAt: now(),
-  };
-  getStore().newsDigests.push(record);
-  return record;
-}
-
-export async function markNewsDigestEmailStatus(
-  id: string,
-  status: "sent" | "failed",
-) {
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    const record = await db.newsDigest.update({
-      where: { id },
-      data: {
-        emailStatus: status,
-        sentAt: status === "sent" ? new Date() : null,
-      },
-    });
-    return newsDigestFromRecord(record);
-  }
-
-  const store = getStore();
-  const digest = store.newsDigests.find((item) => item.id === id);
-  if (!digest) {
-    throw new AppError("NOT_FOUND", "没有找到这份摘要记录。", 404);
-  }
-
-  digest.emailStatus = status;
-  digest.sentAt = status === "sent" ? now() : undefined;
-  return digest;
-}
-
-export async function startJobRun(jobType: string) {
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    const record = await db.jobRun.create({
-      data: {
-        jobType,
-        status: "running",
-      },
-    });
-    return jobRunFromRecord(record);
-  }
-
-  const record: JobRunRecord = {
-    id: crypto.randomUUID(),
-    jobType,
-    status: "running",
-    startedAt: now(),
-  };
-  getStore().jobRuns.push(record);
-  return record;
-}
-
-export async function finishJobRun(
-  id: string,
-  status: "success" | "failed",
-  error?: { code?: string; message?: string },
-) {
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    const record = await db.jobRun.update({
-      where: { id },
-      data: {
-        status,
-        finishedAt: new Date(),
-        errorCode: error?.code,
-        errorMessage: error?.message,
-      },
-    });
-    return jobRunFromRecord(record);
-  }
-
-  const run = getStore().jobRuns.find((item) => item.id === id);
-  if (!run) {
-    throw new AppError("NOT_FOUND", "没有找到这次任务运行记录。", 404);
-  }
-
-  run.status = status;
-  run.finishedAt = now();
-  run.errorCode = error?.code;
-  run.errorMessage = error?.message;
-  return run;
-}
-
-async function getDefaultChatSessionId() {
-  const db = await getPrisma();
-  const existing = (await db.chatSession.findFirst({
-    orderBy: { createdAt: "asc" },
-  })) as ChatSessionRecord | null;
-
-  if (existing) {
-    return existing.id;
-  }
-
-  const created = await db.chatSession.create({
-    data: { title: "默认研究对话" },
-  });
-  return created.id;
-}
-
-export async function addChatMessage(message: Omit<ChatMessage, "id" | "createdAt">) {
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    const sessionId = await getDefaultChatSessionId();
-    const created = await db.chatMessage.create({
-      data: {
-        sessionId,
-        role: message.role,
-        content: message.content,
-      },
-    });
-    return chatMessageFromRecord(created);
-  }
-
-  const fullMessage: ChatMessage = {
-    ...message,
-    id: crypto.randomUUID(),
-    createdAt: now(),
-  };
-  getStore().chatMessages.push(fullMessage);
-  return fullMessage;
-}
-
-export async function listRecentChatMessages(limit = 12) {
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    const sessionId = await getDefaultChatSessionId();
-    const records = await db.chatMessage.findMany({
-      where: { sessionId },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-    });
-    return records.map(chatMessageFromRecord).reverse();
-  }
-
-  return getStore().chatMessages.slice(-limit);
-}
-
 export async function getIntegrationSetting(kind: IntegrationKind) {
   const localSetting = getLocalIntegrationSetting(kind);
   if (localSetting) {
-    if (kind === "model" && !localSetting.secret && shouldUseDatabase()) {
-      return migrateModelSecretFromDatabase(localSetting);
-    }
     return localSetting;
   }
 
   const fallbackSetting = getStore().integrations[kind];
   if (fallbackSetting) {
-    if (kind === "model" && !fallbackSetting.secret && shouldUseDatabase()) {
-      return migrateModelSecretFromDatabase(fallbackSetting);
-    }
     return fallbackSetting;
   }
 
-  if (shouldUseDatabase()) {
-    const db = await getPrisma();
-    const record = await db.integrationSetting.findUnique({ where: { kind } });
-    if (record) {
-      const setting: IntegrationSetting = {
-        id: record.id,
-        kind: record.kind as IntegrationKind,
-        provider: record.provider,
-        baseUrl: record.baseUrl ?? undefined,
-        modelName: record.modelName ?? undefined,
-        secretPreview: record.secretPreview ?? undefined,
-        lastTestStatus: record.lastTestStatus as IntegrationSetting["lastTestStatus"],
-        lastTestMessage: record.lastTestMessage ?? undefined,
-        lastTestedAt: record.lastTestedAt?.toISOString(),
-        createdAt: record.createdAt.toISOString(),
-        updatedAt: record.updatedAt.toISOString(),
-      };
-      if (!setting.secret && record.encryptedSecret) {
-        try {
-          setting.secret = decryptSecret(record.encryptedSecret);
-        } catch {
-          setting.lastTestStatus = "failed";
-          setting.lastTestMessage = "旧 API Key 使用的本地密钥已变更，无法恢复。请重新输入 API Key 并保存。";
-        }
-      }
-      return saveLocalIntegrationSetting(setting);
-    }
-  }
-
   return null;
-}
-
-async function migrateModelSecretFromDatabase(setting: IntegrationSetting) {
-  const db = await getPrisma();
-  const record = await db.integrationSetting.findUnique({ where: { kind: "model" } });
-  if (!record?.encryptedSecret) return setting;
-
-  const next: IntegrationSetting = {
-    ...setting,
-    secretPreview: setting.secretPreview ?? record.secretPreview ?? undefined,
-    lastTestedAt: setting.lastTestedAt ?? record.lastTestedAt?.toISOString(),
-  };
-
-  try {
-    next.secret = decryptSecret(record.encryptedSecret);
-    next.lastTestStatus = record.lastTestStatus as IntegrationSetting["lastTestStatus"];
-    next.lastTestMessage = record.lastTestMessage ?? undefined;
-  } catch {
-    next.lastTestStatus = "failed";
-    next.lastTestMessage = "旧 API Key 使用的本地密钥已变更，无法恢复。请重新输入 API Key 并保存。";
-  }
-
-  return saveLocalIntegrationSetting(next);
 }
 
 export async function upsertModelIntegration(input: {
@@ -833,6 +861,7 @@ export async function upsertModelIntegration(input: {
   if (!existing?.secret && !input.apiKey?.trim()) {
     throw new AppError("VALIDATION_ERROR", "请输入 API Key 后再保存 Chat 配置。", 400);
   }
+
   const timestamp = now();
   const next: IntegrationSetting = {
     id: existing?.id ?? "model-integration",
@@ -859,8 +888,7 @@ export async function upsertModelIntegration(input: {
     next.lastTestedAt = undefined;
   }
 
-  const store = getStore();
-  store.integrations.model = saveLocalIntegrationSetting(next);
+  getStore().integrations.model = saveLocalIntegrationSetting(next);
   return publicIntegrationFromSetting("model", next);
 }
 
@@ -963,10 +991,10 @@ export async function markIntegrationTest(
 }
 
 function defaultProvider(kind: IntegrationKind) {
-  if (kind === "model") return process.env.MODEL_PROVIDER ?? "mock";
+  if (kind === "model") return process.env.MODEL_PROVIDER ?? "openai-compatible";
   if (kind === "quote") return process.env.QUOTE_PROVIDER ?? "auto";
   if (kind === "news") return process.env.NEWS_PROVIDER ?? "public";
-  return process.env.EMAIL_PROVIDER ?? (process.env.SMTP_URL ? "smtp" : "mock");
+  return process.env.EMAIL_PROVIDER ?? "smtp";
 }
 
 async function publicIntegration(kind: IntegrationKind): Promise<PublicIntegrationSetting> {
@@ -984,24 +1012,39 @@ function publicIntegrationFromSetting(
     const envConfigured = Boolean(
       process.env.MODEL_BASE_URL && process.env.MODEL_API_KEY && process.env.MODEL_NAME,
     );
-    const dbConfigured = Boolean(setting?.baseUrl || setting?.modelName || setting?.secret);
-    const source = dbConfigured ? "file" : envConfigured ? "env" : "mock";
+    const fileConfigured = Boolean(setting?.baseUrl || setting?.modelName || setting?.secret);
+    const testMock = process.env.NODE_ENV === "test" && process.env.MODEL_PROVIDER === "mock";
+    const source = fileConfigured
+      ? "file"
+      : envConfigured
+        ? "env"
+        : testMock
+          ? "mock"
+          : "unconfigured";
     const provider = source === "mock" ? "mock" : "openai-compatible";
     const secretPreview =
-      setting?.secretPreview ?? (envConfigured ? maskSecret(process.env.MODEL_API_KEY ?? "") : undefined);
+      setting?.secretPreview ??
+      (envConfigured ? maskSecret(process.env.MODEL_API_KEY ?? "") : undefined);
+
     return {
       kind,
       provider,
       source,
       label: "AI Chat",
       description:
-        source === "mock"
-          ? "真实模型尚未配置，当前只能使用 mock 响应。"
-          : "已准备通过 OpenAI-compatible API 回答问题。",
-      status: setting?.lastTestStatus ?? (source === "mock" ? "failed" : "untested"),
+        source === "unconfigured"
+          ? "真实模型尚未配置，请填写 OpenAI-compatible 连接信息。"
+          : source === "mock"
+            ? "测试环境正在使用 mock 模型。"
+            : "已准备通过 OpenAI-compatible API 回答问题。",
+      status:
+        setting?.lastTestStatus ??
+        (source === "unconfigured" || source === "mock" ? "failed" : "untested"),
       statusMessage:
         setting?.lastTestMessage ??
-        (source === "mock" ? "真实模型未配置，请填写 Base URL、模型名称和 API Key。" : "尚未测试模型连接。"),
+        (source === "unconfigured" || source === "mock"
+          ? "真实模型未配置，请填写 Base URL、模型名称和 API Key。"
+          : "尚未测试模型连接。"),
       baseUrl: setting?.baseUrl ?? process.env.MODEL_BASE_URL,
       modelName: setting?.modelName ?? process.env.MODEL_NAME,
       secretConfigured: Boolean(setting?.secret || envConfigured),
@@ -1013,22 +1056,45 @@ function publicIntegrationFromSetting(
 
   const envProvider = defaultProvider(kind);
   const emailConfigured = kind === "email" && Boolean(setting?.secret && setting.baseUrl);
-  const emailEnvConfigured = kind === "email" && Boolean(process.env.SMTP_URL && process.env.EMAIL_FROM);
+  const emailEnvConfigured =
+    kind === "email" && Boolean(process.env.SMTP_URL && process.env.EMAIL_FROM);
   const emailPartialFileConfig =
-    kind === "email" && setting?.provider === "smtp" && Boolean(setting.baseUrl) && !setting.secret;
-  const emailUnconfigured = kind === "email" && !emailConfigured && !emailEnvConfigured && !emailPartialFileConfig;
-  const emailMisconfigured = kind === "email" && envProvider === "smtp" && !emailConfigured && !emailEnvConfigured;
+    kind === "email" &&
+    setting?.provider === "smtp" &&
+    Boolean(setting.baseUrl) &&
+    !setting.secret;
+  const emailUnconfigured =
+    kind === "email" && !emailConfigured && !emailEnvConfigured && !emailPartialFileConfig;
+  const emailMisconfigured =
+    kind === "email" && envProvider === "smtp" && !emailConfigured && !emailEnvConfigured;
   const provider = emailConfigured || emailPartialFileConfig ? "smtp" : envProvider;
-  const statusMessage = provider === "mock" ? `${labelForKind(kind)} Mock 可用。` : "尚未测试连接。";
+  const statusMessage =
+    provider === "mock" ? `${labelForKind(kind)}测试 provider 可用。` : "尚未测试连接。";
   const status =
     setting?.lastTestStatus ??
-    (emailMisconfigured || emailUnconfigured ? "failed" : provider === "mock" ? "success" : "untested");
-  const staleMockMessage = kind === "email" && provider === "smtp" && setting?.lastTestMessage?.includes("mock provider");
+    (emailMisconfigured || emailUnconfigured
+      ? "failed"
+      : provider === "mock"
+        ? "success"
+        : "untested");
+  const staleMockMessage =
+    kind === "email" &&
+    provider === "smtp" &&
+    setting?.lastTestMessage?.includes("mock provider");
   const lastTestMessage = staleMockMessage ? undefined : setting?.lastTestMessage;
+
   return {
     kind,
     provider,
-    source: emailConfigured ? "file" : emailPartialFileConfig ? "unconfigured" : envProvider === "mock" ? "mock" : emailMisconfigured ? "unconfigured" : "env",
+    source: emailConfigured
+      ? "file"
+      : emailPartialFileConfig
+        ? "unconfigured"
+        : envProvider === "mock"
+          ? "mock"
+          : emailMisconfigured
+            ? "unconfigured"
+            : "env",
     label: labelForKind(kind),
     description: descriptionForKind(kind, provider),
     status: emailPartialFileConfig ? "failed" : staleMockMessage ? "untested" : status,
@@ -1038,12 +1104,17 @@ function publicIntegrationFromSetting(
         ? "SMTP 配置不完整，请设置 SMTP_URL 和 EMAIL_FROM。"
         : emailPartialFileConfig
           ? "请输入 SMTP 授权码并保存邮件连接。"
-        : emailUnconfigured
-          ? "真实邮件未配置，请设置 SMTP_URL 和 EMAIL_FROM。"
-          : statusMessage),
+          : emailUnconfigured
+            ? "真实邮件未配置，请设置 SMTP_URL 和 EMAIL_FROM。"
+            : statusMessage),
     baseUrl: kind === "email" ? setting?.baseUrl ?? process.env.EMAIL_FROM : undefined,
-    secretConfigured: kind === "email" ? Boolean(setting?.secret || process.env.SMTP_URL) : false,
-    secretPreview: kind === "email" ? setting?.secretPreview ?? (process.env.SMTP_URL ? maskSecret(process.env.SMTP_URL) : undefined) : undefined,
+    secretConfigured:
+      kind === "email" ? Boolean(setting?.secret || process.env.SMTP_URL) : false,
+    secretPreview:
+      kind === "email"
+        ? setting?.secretPreview ??
+          (process.env.SMTP_URL ? maskSecret(process.env.SMTP_URL) : undefined)
+        : undefined,
     encryptionConfigured,
     lastTestedAt: setting?.lastTestedAt,
   };
@@ -1057,17 +1128,26 @@ function labelForKind(kind: IntegrationKind) {
 }
 
 function descriptionForKind(kind: IntegrationKind, provider: string) {
-  if (kind === "quote") return provider === "mock" ? "当前展示模拟行情。" : "已配置真实行情 provider。";
-  if (kind === "news") return provider === "mock" ? "当前使用模拟新闻。" : "已配置真实新闻 provider。";
-  if (kind === "email") return provider === "mock" ? "当前只模拟发送邮件。" : "已配置真实邮件 provider。";
+  if (kind === "quote") {
+    return provider === "mock" ? "测试环境正在使用模拟行情。" : "已配置真实行情 provider。";
+  }
+  if (kind === "news") {
+    return provider === "mock" ? "测试环境正在使用模拟新闻。" : "已配置真实新闻 provider。";
+  }
+  if (kind === "email") {
+    return provider === "mock" ? "测试环境正在使用模拟邮件。" : "已配置真实邮件 provider。";
+  }
   return "模型连接状态。";
 }
 
 export async function listPublicIntegrations() {
-  return Promise.all((["model", "quote", "news", "email"] as const).map((kind) => publicIntegration(kind)));
+  return Promise.all(
+    (["model", "quote", "news", "email"] as const).map((kind) => publicIntegration(kind)),
+  );
 }
 
 export function resetStoreForTests() {
   globalStore.tradeStore = createInitialStore();
   resetLocalSettingsForTests();
+  resetLocalDigestStateForTests();
 }

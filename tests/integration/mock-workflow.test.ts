@@ -10,8 +10,9 @@ import { PUT as putEmailSetting } from "@/app/api/settings/email/route";
 import { POST as testProvider } from "@/app/api/settings/providers/test/route";
 import { POST as addWatchlist, GET as listWatchlist } from "@/app/api/watchlist/route";
 import { DELETE as deleteWatchlist } from "@/app/api/watchlist/[id]/route";
+import { PATCH as patchHolding } from "@/app/api/watchlist/[id]/holding/route";
 import { sendDailyDigest } from "@/lib/jobs/digest";
-import { listRecentChatMessages, resetStoreForTests } from "@/lib/db/store";
+import { resetStoreForTests } from "@/lib/db/store";
 
 const previousEnv = {
   QUOTE_PROVIDER: process.env.QUOTE_PROVIDER,
@@ -174,8 +175,53 @@ describe("mock provider workflow", () => {
     expect(chatText).toContain("不是买卖建议");
     expect(chatText).not.toContain("结论：");
 
-    const history = await listRecentChatMessages(4);
-    expect(history.map((message) => message.role)).toEqual(["user", "assistant"]);
+  });
+
+  it("updates and validates stock holdings through the API", async () => {
+    const addResponse = await addWatchlist(
+      jsonRequest("https://trade.local/api/watchlist", { symbol: "AAPL.US" }),
+    );
+    expect(addResponse.status).toBe(201);
+
+    const addPayload = (await addResponse.json()) as {
+      data: { id: string };
+    };
+    const holdingResponse = await patchHolding(
+      new NextRequest(`https://trade.local/api/watchlist/${addPayload.data.id}/holding`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ costPrice: 200.25, shares: 1.5 }),
+      }),
+      { params: Promise.resolve({ id: addPayload.data.id }) },
+    );
+    const holdingPayload = (await holdingResponse.json()) as {
+      watchlist: Array<{ normalizedSymbol: string; costPrice?: number; shares?: number }>;
+    };
+
+    expect(holdingResponse.status).toBe(200);
+    expect(holdingPayload.watchlist[0]).toMatchObject({
+      normalizedSymbol: "AAPL.US",
+      costPrice: 200.25,
+      shares: 1.5,
+    });
+
+    const invalidResponse = await patchHolding(
+      new NextRequest(`https://trade.local/api/watchlist/${addPayload.data.id}/holding`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ costPrice: -1, shares: 1 }),
+      }),
+      { params: Promise.resolve({ id: addPayload.data.id }) },
+    );
+    const invalidPayload = (await invalidResponse.json()) as {
+      error: { code: string; message: string };
+    };
+
+    expect(invalidResponse.status).toBe(400);
+    expect(invalidPayload.error).toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: "成本价和股票数必须大于 0。",
+    });
   });
 
   it("reports the default quote integration as a real auto provider", async () => {

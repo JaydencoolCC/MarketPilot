@@ -35,7 +35,7 @@ export async function resolveModelConfig(): Promise<ResolvedModelConfig> {
     };
   }
 
-  if ((process.env.MODEL_PROVIDER ?? "mock") === "mock") {
+  if (process.env.NODE_ENV === "test" && process.env.MODEL_PROVIDER === "mock") {
     return {
       source: "mock",
       provider: "mock",

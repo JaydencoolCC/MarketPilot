@@ -67,26 +67,7 @@ async function runProviderTest(kind: IntegrationKind) {
     return `新闻连接正常，返回 ${articles.length} 条样例。`;
   }
 
-  const result = await (await getEmailProvider()).sendDigest({
-    test: true,
-    setting: {
-      id: "provider-test",
-      enabled: false,
-      recipientEmail: "test@example.com",
-      sendTime: "08:30",
-      timezone: "Asia/Shanghai",
-      markets: ["US"],
-      watchlistOnly: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    digest: {
-      title: "连接测试",
-      generatedAt: new Date().toISOString(),
-      sections: [{ heading: "测试", body: "这是一封 provider 连接测试。" }],
-    },
-  });
-  return result.message;
+  return (await getEmailProvider()).verifyConnection();
 }
 
 function providerTestErrorMessage(error: unknown) {

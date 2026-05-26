@@ -69,10 +69,6 @@ export class PublicNewsProvider implements NewsProvider {
       .filter((article) => withinHours(article.publishedAt, input.hours ?? 24))
       .filter((article) => matchesMarkets(article, input.markets));
 
-    if (!articles.length && !eastmoneyArticles.length && shouldUseYahooFallback) {
-      throw new AppError("PROVIDER_UNAVAILABLE", "公开新闻源暂时没有返回可用新闻。", 503);
-    }
-
     return dedupeAndSort(articles);
   }
 }

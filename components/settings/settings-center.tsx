@@ -8,9 +8,9 @@ import {
   KeyRound,
   Mail,
   Newspaper,
+  RefreshCw,
   Save,
   ShieldCheck,
-  TestTube2,
   Wifi,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -73,13 +73,13 @@ export function SettingsCenter({ initialEmailSetting, initialIntegrations }: Set
               </div>
               <h2 className="mt-2 text-lg font-semibold text-ink">服务是否准备好，一眼看清</h2>
               <p className="mt-1 text-sm leading-6 text-muted">
-                这里显示当前真实连接和 mock provider 状态。连接失败时，我会说明缺什么。
+                这里显示当前真实连接状态。连接失败时，我会说明缺什么。
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               {integrations.map((item) => (
-                <Badge key={item.kind} tone={item.status === "failed" ? "red" : item.source === "mock" ? "amber" : "green"}>
-                  {item.label} {item.source === "mock" ? "Mock" : item.status === "success" ? "已连接" : "待测试"}
+                <Badge key={item.kind} tone={item.status === "failed" ? "red" : "green"}>
+                  {item.label} {item.status === "success" ? "已连接" : item.status === "failed" ? "未配置" : "待测试"}
                 </Badge>
               ))}
             </div>
@@ -167,13 +167,13 @@ function ProviderStatusCard({
           <div className="text-sm font-semibold text-ink">{integration.label}</div>
           <p className="mt-1 text-xs leading-5 text-muted">{integration.statusMessage}</p>
         </div>
-        <StatusDot status={integration.status} source={integration.source} />
+        <StatusDot status={integration.status} />
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
-        <Badge tone={integration.source === "mock" ? "amber" : "green"}>{sourceLabel(integration.source)}</Badge>
+        <Badge tone={integration.source === "unconfigured" ? "amber" : "green"}>{sourceLabel(integration.source)}</Badge>
         <Button size="sm" variant="secondary" onClick={testProvider} disabled={testing}>
-          <TestTube2 className="h-4 w-4" />
-          测试
+          <RefreshCw className={cn("h-4 w-4", testing && "animate-spin")} />
+          {testing ? "检测中" : "检测连接"}
         </Button>
       </div>
     </div>
@@ -311,8 +311,8 @@ function ModelSettingsCard({
           <p className="text-sm leading-6 text-muted">{message}</p>
           <div className="flex gap-2">
             <Button type="button" variant="secondary" onClick={testModel} disabled={busy}>
-              <TestTube2 className="h-4 w-4" />
-              测试连接
+              <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
+              {busy ? "检测中" : "检测连接"}
             </Button>
             <Button type="submit" disabled={busy}>
               <Save className="h-4 w-4" />
@@ -365,17 +365,17 @@ function MarketProviderCard({
               <h2 className="text-lg font-semibold text-ink">{integration.label}</h2>
               <p className="mt-1 text-sm leading-6 text-muted">{integration.description}</p>
             </div>
-            <Badge tone={integration.source === "mock" ? "amber" : "green"}>{sourceLabel(integration.source)}</Badge>
+            <Badge tone={integration.source === "unconfigured" ? "amber" : "green"}>{sourceLabel(integration.source)}</Badge>
           </div>
           <p className="mt-3 text-sm text-muted">{integration.statusMessage}</p>
           <div className="mt-4 flex items-center justify-between gap-3 rounded-md bg-surface/60 p-3">
             <div className="flex items-center gap-2 text-sm text-muted">
-              <StatusDot status={integration.status} source={integration.source} />
-              <span>{integration.status === "failed" ? "连接失败" : "连接状态可测试"}</span>
+              <StatusDot status={integration.status} />
+              <span>{integration.status === "failed" ? "连接失败" : "可手动检测连接"}</span>
             </div>
             <Button size="sm" variant="secondary" onClick={testProvider} disabled={testing}>
-              <TestTube2 className="h-4 w-4" />
-              测试
+              <RefreshCw className={cn("h-4 w-4", testing && "animate-spin")} />
+              {testing ? "检测中" : "检测连接"}
             </Button>
           </div>
         </div>
@@ -386,18 +386,15 @@ function MarketProviderCard({
 
 function StatusDot({
   status,
-  source,
 }: {
   status: PublicIntegrationSetting["status"];
-  source: PublicIntegrationSetting["source"];
 }) {
   return (
     <span
       className={cn(
         "mt-1 flex h-8 w-8 items-center justify-center rounded-full",
         status === "failed" && "bg-coral/10 text-coral",
-        status !== "failed" && source === "mock" && "bg-amber/15 text-amber",
-        status !== "failed" && source !== "mock" && "bg-moss/10 text-moss",
+        status !== "failed" && "bg-moss/10 text-moss",
       )}
     >
       {status === "failed" ? <KeyRound className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
@@ -408,6 +405,5 @@ function StatusDot({
 function sourceLabel(source: PublicIntegrationSetting["source"]) {
   if (source === "file") return "配置文件";
   if (source === "env") return "环境变量";
-  if (source === "mock") return "Mock";
   return "未配置";
 }

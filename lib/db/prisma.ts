@@ -35,37 +35,19 @@ export async function getPrisma() {
     quoteSnapshot: {
       findMany: (args?: unknown) => Promise<QuoteSnapshotRecord[]>;
       create: (args: unknown) => unknown;
+      update: (args: unknown) => unknown;
     };
-    newsArticle: {
-      upsert: (args: unknown) => unknown;
+    fundWatchlistItem: {
+      findMany: (args?: unknown) => Promise<FundWatchlistRecord[]>;
+      findUnique: (args: unknown) => Promise<FundWatchlistRecord | null>;
+      create: (args: unknown) => Promise<FundWatchlistRecord>;
+      update: (args: unknown) => Promise<FundWatchlistRecord>;
+      delete: (args: unknown) => Promise<FundWatchlistRecord>;
     };
-    newsDigest: {
-      findUnique: (args: unknown) => Promise<NewsDigestRecord | null>;
-      create: (args: unknown) => Promise<NewsDigestRecord>;
-      update: (args: unknown) => Promise<NewsDigestRecord>;
-    };
-    jobRun: {
-      create: (args: unknown) => Promise<JobRunRecord>;
-      update: (args: unknown) => Promise<JobRunRecord>;
-    };
-    chatSession: {
-      findFirst: (args?: unknown) => Promise<ChatSessionRecord | null>;
-      create: (args: unknown) => Promise<ChatSessionRecord>;
-    };
-    chatMessage: {
-      create: (args: unknown) => Promise<ChatMessageRecord>;
-      findMany: (args?: unknown) => Promise<ChatMessageRecord[]>;
-    };
-    emailDigestSetting: {
-      findFirst: (args?: unknown) => Promise<EmailDigestSettingRecord | null>;
-      create: (args: unknown) => Promise<EmailDigestSettingRecord>;
-      update: (args: unknown) => Promise<EmailDigestSettingRecord>;
-    };
-    integrationSetting: {
-      findMany: (args?: unknown) => Promise<IntegrationSettingRecord[]>;
-      findUnique: (args: unknown) => Promise<IntegrationSettingRecord | null>;
-      upsert: (args: unknown) => Promise<IntegrationSettingRecord>;
-      update: (args: unknown) => Promise<IntegrationSettingRecord>;
+    fundSnapshot: {
+      findMany: (args?: unknown) => Promise<FundSnapshotRecord[]>;
+      create: (args: unknown) => unknown;
+      update: (args: unknown) => unknown;
     };
     $transaction: <T>(queries: T[]) => Promise<T[]>;
   };
@@ -78,11 +60,14 @@ export type WatchlistRecord = {
   market: "US" | "HK" | "CN";
   name: string;
   currency: string;
+  costPrice: unknown | null;
+  shares: unknown | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
 export type QuoteSnapshotRecord = {
+  id: string;
   symbol: string;
   price: unknown;
   change: unknown;
@@ -96,67 +81,28 @@ export type QuoteSnapshotRecord = {
   errorMessage: string | null;
 };
 
-export type EmailDigestSettingRecord = {
+export type FundWatchlistRecord = {
   id: string;
-  enabled: boolean;
-  recipientEmail: string;
-  sendTime: string;
-  timezone: string;
-  markets: Array<"US" | "HK" | "CN">;
-  watchlistOnly: boolean;
+  code: string;
+  normalizedSymbol: string;
+  type: string;
+  market: "US" | "HK" | "CN" | null;
+  name: string;
+  currency: string;
   createdAt: Date;
   updatedAt: Date;
 };
 
-export type NewsDigestRecord = {
+export type FundSnapshotRecord = {
   id: string;
-  date: Date;
-  recipientEmail: string;
-  title: string;
-  content: string;
-  articleIds: string[];
-  emailStatus: "draft" | "sent" | "failed";
-  sentAt: Date | null;
-  createdAt: Date;
-};
-
-export type JobRunRecord = {
-  id: string;
-  jobType: string;
-  status: "pending" | "running" | "success" | "failed";
-  startedAt: Date;
-  finishedAt: Date | null;
+  symbol: string;
+  netValue: unknown;
+  estimateValue: unknown | null;
+  changePercent: unknown;
+  currency: string;
+  provider: string;
+  quoteTime: Date;
+  createdAt?: Date;
   errorCode: string | null;
   errorMessage: string | null;
-};
-
-export type ChatSessionRecord = {
-  id: string;
-  title: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-export type ChatMessageRecord = {
-  id: string;
-  sessionId: string;
-  role: string;
-  content: string;
-  metadata: unknown;
-  createdAt: Date;
-};
-
-export type IntegrationSettingRecord = {
-  id: string;
-  kind: string;
-  provider: string;
-  baseUrl: string | null;
-  modelName: string | null;
-  encryptedSecret: string | null;
-  secretPreview: string | null;
-  lastTestStatus: string;
-  lastTestMessage: string | null;
-  lastTestedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
 };

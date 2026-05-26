@@ -5,6 +5,7 @@ import {
   updateEmailSetting,
 } from "@/lib/db/store";
 import { isDailyDigestDue, runDailyDigestJob, sendDailyDigest } from "@/lib/jobs/digest";
+import { runDailyDigestSchedulerTick } from "@/lib/jobs/daily-digest-scheduler";
 import { assertJobRequestAuthorized } from "@/lib/utils/job-auth";
 
 const previousEnv = {
@@ -109,7 +110,6 @@ describe("daily digest job", () => {
       status: "skipped",
       message: "还没到今天的发送时间 08:30（Asia/Shanghai）。",
     });
-    expect(result.jobRunId).toBeTruthy();
   });
 
   it("detects when a daily digest is due in the configured timezone", async () => {
@@ -126,6 +126,23 @@ describe("daily digest job", () => {
     expect(isDailyDigestDue(setting, new Date("2026-05-19T00:30:00.000Z"))).toMatchObject({
       due: true,
     });
+  });
+
+  it("runs the embedded scheduler tick without overlapping jobs", async () => {
+    await updateEmailSetting({
+      enabled: true,
+      recipientEmail: "me@example.com",
+      sendTime: "08:30",
+      timezone: "Asia/Shanghai",
+    });
+    const state = { running: false };
+
+    await runDailyDigestSchedulerTick(state);
+
+    expect(state.running).toBe(false);
+    const lockedState = { running: true };
+    await runDailyDigestSchedulerTick(lockedState);
+    expect(lockedState.running).toBe(true);
   });
 
   it("protects job endpoints with APP_PASSWORD", () => {

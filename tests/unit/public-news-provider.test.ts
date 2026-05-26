@@ -76,11 +76,11 @@ describe("PublicNewsProvider", () => {
     });
   });
 
-  it("throws when no public news source returns usable articles", async () => {
+  it("returns an empty list when no public news source returns usable articles", async () => {
     global.fetch = vi.fn(async () => new Response("unavailable", { status: 503 })) as typeof fetch;
 
     await expect(
       new PublicNewsProvider().fetchMarketNews({ symbols: ["AAPL.US"], hours: 24 }),
-    ).rejects.toThrow("公开新闻源暂时没有返回可用新闻");
+    ).resolves.toEqual([]);
   });
 });

@@ -46,6 +46,7 @@ describe("symbol normalization", () => {
     expect(securityFromSymbol("000001.SH").name).toBe("上证指数");
     expect(securityFromSymbol("1810.HK").name).toBe("小米集团-W");
     expect(securityFromSymbol("000725.SZ").name).toBe("京东方A");
+    expect(securityFromSymbol("000876.SZ").name).toBe("新希望");
     expect(securityFromSymbol("002352.SZ").name).toBe("顺丰控股");
   });
 

@@ -10,14 +10,16 @@ class UnimplementedNewsProvider implements NewsProvider {
   async fetchMarketNews(_input: NewsQuery): Promise<NewsArticle[]> {
     throw new AppError(
       "PROVIDER_UNAVAILABLE",
-      "真实新闻 provider 尚未接入，请先使用 NEWS_PROVIDER=mock。",
+      "真实新闻 provider 尚未接入，请配置 NEWS_PROVIDER=public 或 alpha-vantage。",
       503,
     );
   }
 }
 
 export function getNewsProvider(): NewsProvider {
-  const provider = process.env.NEWS_PROVIDER ?? "public";
+  const configuredProvider = process.env.NEWS_PROVIDER ?? "public";
+  const provider =
+    configuredProvider === "mock" && process.env.NODE_ENV !== "test" ? "public" : configuredProvider;
   if (provider === "public") {
     return new PublicNewsProvider();
   }

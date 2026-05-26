@@ -11,7 +11,15 @@ export type ChatRequest = {
   watchlist: WatchlistItem[];
   quotes: Quote[];
   articles: NewsArticle[];
+  context: ChatRuntimeContext;
   history?: ChatMessage[];
+};
+
+export type ChatRuntimeContext = {
+  now: string;
+  timezone: string;
+  today: string;
+  localTime: string;
 };
 
 export type ChatChunk = {

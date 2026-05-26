@@ -14,4 +14,5 @@ export type EmailSendResult = {
 
 export interface EmailProvider {
   sendDigest(input: DigestEmail): Promise<EmailSendResult>;
+  verifyConnection(): Promise<string>;
 }

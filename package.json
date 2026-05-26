@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "NODE_EXTRA_CA_CERTS=${NODE_EXTRA_CA_CERTS:-$CONDA_PREFIX/ssl/cacert.pem} next dev",
+    "build": "NODE_EXTRA_CA_CERTS=${NODE_EXTRA_CA_CERTS:-$CONDA_PREFIX/ssl/cacert.pem} next build",
+    "start": "NODE_EXTRA_CA_CERTS=${NODE_EXTRA_CA_CERTS:-$CONDA_PREFIX/ssl/cacert.pem} next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

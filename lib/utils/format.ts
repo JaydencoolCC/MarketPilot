@@ -1,4 +1,11 @@
 export function formatCurrency(value: number, currency: string) {
+  if (currency === "USD") {
+    return `$${value.toLocaleString("zh-CN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }
+
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",
     currency,
