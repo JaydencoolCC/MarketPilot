@@ -70,4 +70,5 @@ model QuoteSnapshot {
   errorCode       String?
   errorMessage    String?
   createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 }

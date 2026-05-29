@@ -165,11 +165,9 @@ export function EmailSettingsForm({
             value={authCode}
             onChange={(event) => setAuthCode(event.target.value)}
             placeholder={
-              integration?.encryptionConfigured
-                ? integration.secretConfigured
-                  ? "已保存授权码，留空则不替换"
-                  : "QQ 邮箱 SMTP 授权码，不是登录密码"
-                : "输入授权码，保存时会创建本地加密密钥"
+              integration?.secretConfigured
+                ? "已保存授权码，留空则不替换"
+                : "QQ 邮箱 SMTP 授权码，不是登录密码"
             }
           />
         </label>

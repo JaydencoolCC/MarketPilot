@@ -175,7 +175,7 @@ Dashboard 是首屏，不做 landing page。
 
 - 作为服务连接与个人偏好中心，包含连接状态、AI Chat、每日邮件、行情与新闻、安全说明。
 - AI Chat 可配置 OpenAI-compatible `Base URL`、模型名称和 API Key。
-- API Key 由后端加密保存，前端只显示脱敏状态，不回显完整密钥。
+- API Key 由后端保存在本机配置文件中，前端只显示脱敏状态，不回显完整密钥。
 - 每日邮件只保留必要字段：启用、收件邮箱、发送时间、时区、市场范围、只看自选股、预览、测试发送。
 - 保存、测试、删除密钥后都要给出明确反馈。
 - 邮件或模型失败时显示可理解原因，例如“SMTP 登录失败”或“模型连接测试失败”。
@@ -452,7 +452,7 @@ interface ModelProvider {
 
 配置优先级：
 
-1. 设置页加密保存的模型配置。
+1. 设置页保存的模型配置。
 2. `.env` 中的 `MODEL_BASE_URL`、`MODEL_API_KEY`、`MODEL_NAME`。
 3. 如果仍不完整，返回未配置错误，不自动使用 mock。
 
@@ -553,7 +553,7 @@ interface ModelProvider {
 
 - 本地文件是这些配置和摘要状态的唯一真源，不再与数据库双写。
 - 前端 API 永不返回原始 secret。
-- 生产环境建议显式配置 `SETTINGS_ENCRYPTION_KEY`。
+- 设置页保存的密钥只写入本机配置文件，前端 API 永不返回原始 secret。
 - 每日摘要正式发送按 `date + recipientEmail` 在本地文件中保证幂等。
 
 ## 8. API 设计
@@ -706,10 +706,7 @@ interface ModelProvider {
 
 执行每日摘要任务。
 
-后台任务鉴权：
-
-- 必须配置 `APP_PASSWORD`。
-- 请求使用 `Authorization: Bearer $APP_PASSWORD` 或 `x-app-password`。
+后台任务面向个人部署直接调用，不要求配置 `APP_PASSWORD`。
 
 ## 9. 定时任务设计
 
@@ -830,7 +827,7 @@ Chat 定位为金融研究助手。
 
 ## 12. 配置与安全
 
-所有敏感信息通过环境变量或设置页加密配置。
+所有敏感信息通过环境变量或设置页本机配置。
 
 ### 12.1 Database
 
@@ -868,7 +865,6 @@ MODEL_PROVIDER="openai-compatible"
 MODEL_BASE_URL=""
 MODEL_API_KEY=""
 MODEL_NAME=""
-SETTINGS_ENCRYPTION_KEY=""
 ```
 
 ### 12.6 Email
@@ -882,7 +878,6 @@ EMAIL_FROM="Trade Desk <digest@example.com>"
 ### 12.7 App
 
 ```bash
-APP_PASSWORD="" # protects /api/jobs/* cron endpoints
 APP_TIMEZONE="Asia/Shanghai"
 ```
 
@@ -892,8 +887,7 @@ APP_TIMEZONE="Asia/Shanghai"
 - 只提交 `.env.example` 占位符。
 - 真实 API key、SMTP 密码和 access token 不进入文件、日志、测试、fixture 或文档。
 - 前端不直接接触任何 provider 完整密钥；页面只允许看到脱敏状态。
-- 页面保存的 API Key 必须先用 `SETTINGS_ENCRYPTION_KEY` 做 AES-GCM 加密。
-- 生产部署必须设置强随机 `APP_PASSWORD` 和 `SETTINGS_ENCRYPTION_KEY`。
+- 页面保存的 API Key 和 SMTP 授权码写入本机设置文件，文件不得提交。
 - 生产启动脚本会拒绝 `mock` provider。
 
 ## 13. 启动与部署
@@ -947,13 +941,11 @@ npm run dev
 上线后每日摘要不需要额外配置 cron；服务进程启动后会自动按发送时间检查并发送。基金刷新可按需要额外配置定时任务：
 
 ```bash
-curl -X POST http://127.0.0.1:3000/api/jobs/refresh-funds \
-  -H "Authorization: Bearer $APP_PASSWORD"
+curl -X POST http://127.0.0.1:3000/api/jobs/refresh-funds
 ```
 
 ```bash
-curl -X POST http://127.0.0.1:3000/api/jobs/daily-digest \
-  -H "Authorization: Bearer $APP_PASSWORD"
+curl -X POST http://127.0.0.1:3000/api/jobs/daily-digest
 ```
 
 每日摘要接口保留为手动触发入口，不是按时发送的必需配置。
@@ -1134,7 +1126,7 @@ curl -X POST http://127.0.0.1:3000/api/jobs/daily-digest \
 - Chat 回答包含数据时间和来源，不给出绝对投资建议。
 - 外部 API 失败时系统有明确友好提示。
 - 运行期不会自动退回 mock。
-- 所有密钥均通过环境变量或加密设置管理。
+- 所有密钥均通过环境变量或本机设置管理。
 
 ## 17. 后续扩展方向
 

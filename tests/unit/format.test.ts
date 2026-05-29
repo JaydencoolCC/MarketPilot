@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatClockTime, formatCurrency } from "@/lib/utils/format";
+import { formatClockTime, formatCurrency, formatUnitPrice } from "@/lib/utils/format";
 
 describe("format utilities", () => {
   it("formats clock time with seconds for live quote fetches", () => {
@@ -9,5 +9,11 @@ describe("format utilities", () => {
   it("formats USD prices without the US currency prefix", () => {
     expect(formatCurrency(81.48, "USD")).toBe("$81.48");
     expect(formatCurrency(441.4, "HKD")).toBe("HK$441.40");
+  });
+
+  it("keeps extra precision for unit prices", () => {
+    expect(formatUnitPrice(6.1956, "CNY")).toBe("¥6.1956");
+    expect(formatUnitPrice(6.1, "CNY")).toBe("¥6.10");
+    expect(formatUnitPrice(81.4876, "USD")).toBe("$81.4876");
   });
 });

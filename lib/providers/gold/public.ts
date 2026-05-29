@@ -25,7 +25,7 @@ const TROY_OUNCE_GRAMS = 31.1034768;
 
 export class PublicGoldProvider implements GoldProvider {
   async getHistory(input: { scope: GoldScope; range: GoldRange }): Promise<GoldHistory> {
-    const goldPoints = await goldHistoryFetcher(input.range);
+    const goldPoints = trimPointsForRange(await goldHistoryFetcher(input.range), input.range);
     const points =
       input.scope === "domestic" ? convertToCnyPerGram(goldPoints, await fetchUsdCnyRate()) : goldPoints;
     if (points.length < 2) {
@@ -122,4 +122,12 @@ function daysForRange(range: GoldRange) {
   if (range === "3m") return "90";
   if (range === "6m") return "180";
   return "365";
+}
+
+function trimPointsForRange(points: GoldPoint[], range: GoldRange) {
+  if (points.length < 2) return points;
+
+  const lastTime = new Date(points[points.length - 1].date).getTime();
+  const cutoffTime = lastTime - Number(daysForRange(range)) * 24 * 60 * 60 * 1000;
+  return points.filter((point) => new Date(point.date).getTime() >= cutoffTime);
 }

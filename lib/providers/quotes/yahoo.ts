@@ -110,5 +110,6 @@ function toMarketStatus(value?: string): Quote["marketStatus"] {
   if (value === "REGULAR") return "open";
   if (value === "PRE") return "pre_market";
   if (value === "POST" || value === "POSTPOST") return "after_hours";
-  return "closed";
+  if (value === "CLOSED") return "closed";
+  return "unknown";
 }

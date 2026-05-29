@@ -120,10 +120,7 @@ export function SettingsCenter({ initialEmailSetting, initialIntegrations }: Set
             <div>
               <h2 className="text-lg font-semibold text-ink">安全边界</h2>
               <p className="mt-2 text-sm leading-6 text-muted">
-                API Key 保存前会用 AES-GCM 加密。前端只拿到脱敏状态，不会拿到原始密钥；日志、测试和文档也不能写入真实密钥。
-              </p>
-              <p className="mt-2 text-sm leading-6 text-muted">
-                本地开发会自动创建加密密钥文件；生产部署建议通过环境变量配置 <code className="rounded bg-surface px-1">SETTINGS_ENCRYPTION_KEY</code>。
+                API Key 和 SMTP 授权码保存在本机配置文件中。前端只拿到脱敏状态，不会拿到原始密钥；日志、测试和文档也不能写入真实密钥。
               </p>
             </div>
           </div>
@@ -194,7 +191,6 @@ function ModelSettingsCard({
   const [message, setMessage] = useState(integration.statusMessage);
   const [busy, setBusy] = useState(false);
 
-  const canSaveKey = integration.encryptionConfigured;
   const savedKeyDisplay = integration.secretConfigured ? "********" : "";
   const keyHint = useMemo(() => {
     if (!integration.secretConfigured) return "还没有保存 API Key";
@@ -300,11 +296,7 @@ function ModelSettingsCard({
                 setApiKey("");
               }
             }}
-            placeholder={
-              canSaveKey
-                ? "输入 API Key，保存后会显示为 ********"
-                : "输入 API Key，保存时会创建本地加密密钥"
-            }
+            placeholder="输入 API Key，保存后会显示为 ********"
           />
         </label>
         <div className="md:col-span-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

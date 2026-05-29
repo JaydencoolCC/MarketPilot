@@ -205,11 +205,29 @@ describe("mock provider workflow", () => {
       shares: 1.5,
     });
 
-    const invalidResponse = await patchHolding(
+    const negativeCostResponse = await patchHolding(
       new NextRequest(`https://trade.local/api/watchlist/${addPayload.data.id}/holding`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ costPrice: -1, shares: 1 }),
+      }),
+      { params: Promise.resolve({ id: addPayload.data.id }) },
+    );
+    const negativeCostPayload = (await negativeCostResponse.json()) as {
+      error: { code: string; message: string };
+    };
+
+    expect(negativeCostResponse.status).toBe(400);
+    expect(negativeCostPayload.error).toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: "成本价和股票数必须大于 0。",
+    });
+
+    const invalidResponse = await patchHolding(
+      new NextRequest(`https://trade.local/api/watchlist/${addPayload.data.id}/holding`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ costPrice: -1, shares: 0 }),
       }),
       { params: Promise.resolve({ id: addPayload.data.id }) },
     );

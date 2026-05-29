@@ -21,6 +21,8 @@ type StockTableProps = {
   initialRows: WatchlistRow[];
 };
 
+const QUOTE_POLL_INTERVAL_MS = 3000;
+
 function changeColorClass(changePercent?: number) {
   if (!changePercent) return "text-muted";
   return changePercent > 0 ? "text-coral" : "text-moss";
@@ -31,7 +33,7 @@ function marketStatusLabel(status?: Quote["marketStatus"]) {
   if (status === "closed") return "已休市";
   if (status === "pre_market") return "盘前";
   if (status === "after_hours") return "盘后";
-  return "未返回";
+  return "数据源未返回";
 }
 
 function marketStatusTone(status?: Quote["marketStatus"]) {
@@ -51,6 +53,7 @@ export function StockTable({ initialRows }: StockTableProps) {
   const [message, setMessage] = useState("我会整理价格、新闻和每日摘要。");
   const [selectedRow, setSelectedRow] = useState<WatchlistRow | null>(null);
   const pollingRef = useRef(false);
+  const pendingManualRefreshRef = useRef(false);
   const rowsRef = useRef(initialRows);
 
   const filteredRows = useMemo(
@@ -59,7 +62,7 @@ export function StockTable({ initialRows }: StockTableProps) {
   );
   const latestFetchedAt = useMemo(() => {
     const timestamps = filteredRows
-      .map((row) => row.quote?.fetchedAt ?? row.quote?.quoteTime)
+      .map((row) => row.quote?.quoteTime ?? row.quote?.fetchedAt)
       .filter((value): value is string => Boolean(value))
       .map((value) => new Date(value).getTime())
       .filter(Number.isFinite);
@@ -88,50 +91,42 @@ export function StockTable({ initialRows }: StockTableProps) {
     });
   }, []);
 
-  const fetchQuotes = useCallback(async () => {
-    if (pollingRef.current) return;
+  const fetchQuotes = useCallback(async (options?: { showLoading?: boolean; updateMessage?: boolean }) => {
+    if (pollingRef.current) {
+      if (options?.showLoading) pendingManualRefreshRef.current = true;
+      return;
+    }
     const symbols = rowsRef.current.map((row) => row.normalizedSymbol);
     if (!symbols.length) return;
     pollingRef.current = true;
+    if (options?.showLoading) setLoading(true);
     try {
       const response = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbols.join(","))}`, {
         cache: "no-store",
       });
       const payload = (await response.json()) as { data?: Quote[] };
       mergeQuotes(payload.data ?? []);
-    } finally {
-      pollingRef.current = false;
-    }
-  }, [mergeQuotes]);
-
-  const fetchRows = useCallback(async (options?: { showLoading?: boolean; updateMessage?: boolean }) => {
-    if (pollingRef.current) return;
-    pollingRef.current = true;
-    if (options?.showLoading) setLoading(true);
-    try {
-      const response = await fetch("/api/watchlist", { cache: "no-store" });
-      const payload = (await response.json()) as { data: WatchlistRow[] };
-      setRows(payload.data ?? []);
-      setSelectedRow((current) => {
-        if (!current) return null;
-        return payload.data?.find((row) => row.id === current.id) ?? null;
-      });
-      if (options?.updateMessage) setMessage("已更新自选股和行情快照。");
+      if (options?.updateMessage) setMessage("已更新页面行情。");
     } finally {
       pollingRef.current = false;
       if (options?.showLoading) setLoading(false);
+      if (pendingManualRefreshRef.current) {
+        pendingManualRefreshRef.current = false;
+        void fetchQuotes({ showLoading: true, updateMessage: true });
+      }
     }
-  }, []);
+  }, [mergeQuotes]);
 
   useEffect(() => {
+    void fetchQuotes();
     const interval = window.setInterval(() => {
       void fetchQuotes();
-    }, 1000);
+    }, QUOTE_POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [fetchQuotes]);
 
   async function reloadRows() {
-    await fetchRows({ showLoading: true, updateMessage: true });
+    await fetchQuotes({ showLoading: true, updateMessage: true });
   }
 
   async function addStock(event: React.FormEvent<HTMLFormElement>) {

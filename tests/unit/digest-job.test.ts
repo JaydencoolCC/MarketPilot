@@ -6,14 +6,12 @@ import {
 } from "@/lib/db/store";
 import { isDailyDigestDue, runDailyDigestJob, sendDailyDigest } from "@/lib/jobs/digest";
 import { runDailyDigestSchedulerTick } from "@/lib/jobs/daily-digest-scheduler";
-import { assertJobRequestAuthorized } from "@/lib/utils/job-auth";
 
 const previousEnv = {
   QUOTE_PROVIDER: process.env.QUOTE_PROVIDER,
   NEWS_PROVIDER: process.env.NEWS_PROVIDER,
   MODEL_PROVIDER: process.env.MODEL_PROVIDER,
   EMAIL_PROVIDER: process.env.EMAIL_PROVIDER,
-  APP_PASSWORD: process.env.APP_PASSWORD,
 };
 
 beforeEach(() => {
@@ -30,7 +28,6 @@ afterEach(() => {
   restoreEnv("NEWS_PROVIDER", previousEnv.NEWS_PROVIDER);
   restoreEnv("MODEL_PROVIDER", previousEnv.MODEL_PROVIDER);
   restoreEnv("EMAIL_PROVIDER", previousEnv.EMAIL_PROVIDER);
-  restoreEnv("APP_PASSWORD", previousEnv.APP_PASSWORD);
 });
 
 function restoreEnv(key: keyof NodeJS.ProcessEnv, value: string | undefined) {
@@ -145,19 +142,4 @@ describe("daily digest job", () => {
     expect(lockedState.running).toBe(true);
   });
 
-  it("protects job endpoints with APP_PASSWORD", () => {
-    process.env.APP_PASSWORD = "job-secret";
-
-    const request = new Request("https://trade.local/api/jobs/daily-digest", {
-      method: "POST",
-      headers: { authorization: "Bearer job-secret" },
-    });
-    expect(() => assertJobRequestAuthorized(request)).not.toThrow();
-
-    const rejected = new Request("https://trade.local/api/jobs/daily-digest", {
-      method: "POST",
-      headers: { authorization: "Bearer wrong-secret" },
-    });
-    expect(() => assertJobRequestAuthorized(rejected)).toThrow("后台任务认证失败");
-  });
 });

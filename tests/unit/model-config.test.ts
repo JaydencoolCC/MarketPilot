@@ -11,7 +11,6 @@ const previousEnv = {
   MODEL_BASE_URL: process.env.MODEL_BASE_URL,
   MODEL_API_KEY: process.env.MODEL_API_KEY,
   MODEL_NAME: process.env.MODEL_NAME,
-  SETTINGS_ENCRYPTION_KEY: process.env.SETTINGS_ENCRYPTION_KEY,
 };
 
 beforeEach(() => {
@@ -20,7 +19,6 @@ beforeEach(() => {
   delete process.env.MODEL_BASE_URL;
   delete process.env.MODEL_API_KEY;
   delete process.env.MODEL_NAME;
-  process.env.SETTINGS_ENCRYPTION_KEY = "test-encryption-key";
 });
 
 afterEach(() => {
@@ -29,7 +27,6 @@ afterEach(() => {
   restoreEnv("MODEL_BASE_URL", previousEnv.MODEL_BASE_URL);
   restoreEnv("MODEL_API_KEY", previousEnv.MODEL_API_KEY);
   restoreEnv("MODEL_NAME", previousEnv.MODEL_NAME);
-  restoreEnv("SETTINGS_ENCRYPTION_KEY", previousEnv.SETTINGS_ENCRYPTION_KEY);
 });
 
 function restoreEnv(key: keyof NodeJS.ProcessEnv, value: string | undefined) {

@@ -177,7 +177,6 @@ export type IntegrationSetting = {
   baseUrl?: string;
   modelName?: string;
   secret?: string;
-  encryptedSecret?: string;
   secretPreview?: string;
   lastTestStatus: IntegrationTestStatus;
   lastTestMessage?: string;
@@ -198,6 +197,5 @@ export type PublicIntegrationSetting = {
   modelName?: string;
   secretConfigured: boolean;
   secretPreview?: string;
-  encryptionConfigured: boolean;
   lastTestedAt?: string;
 };

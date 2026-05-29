@@ -77,6 +77,7 @@ export type QuoteSnapshotRecord = {
   provider: string;
   quoteTime: Date;
   createdAt?: Date;
+  updatedAt?: Date;
   errorCode: string | null;
   errorMessage: string | null;
 };

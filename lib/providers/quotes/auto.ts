@@ -117,8 +117,9 @@ function toEastmoneySecid(symbol: string) {
 
 function toEastmoneyMarketStatus(value: number | string | undefined): Quote["marketStatus"] {
   const status = Number(value);
-  if (status === 2) return "open";
-  if (status === 5) return "closed";
+  if ([2, 3].includes(status)) return "open";
+  if (status === 11) return "pre_market";
+  if ([0, 1, 4, 5, 6, 7, 8, 9].includes(status)) return "closed";
   return "unknown";
 }
 

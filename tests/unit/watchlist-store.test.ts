@@ -19,7 +19,6 @@ const previousEnv = {
   EMAIL_PROVIDER: process.env.EMAIL_PROVIDER,
   SMTP_URL: process.env.SMTP_URL,
   EMAIL_FROM: process.env.EMAIL_FROM,
-  SETTINGS_ENCRYPTION_KEY: process.env.SETTINGS_ENCRYPTION_KEY,
   MODEL_PROVIDER: process.env.MODEL_PROVIDER,
   MODEL_BASE_URL: process.env.MODEL_BASE_URL,
   MODEL_API_KEY: process.env.MODEL_API_KEY,
@@ -39,7 +38,6 @@ afterEach(() => {
   restoreEnv("EMAIL_PROVIDER", previousEnv.EMAIL_PROVIDER);
   restoreEnv("SMTP_URL", previousEnv.SMTP_URL);
   restoreEnv("EMAIL_FROM", previousEnv.EMAIL_FROM);
-  restoreEnv("SETTINGS_ENCRYPTION_KEY", previousEnv.SETTINGS_ENCRYPTION_KEY);
   restoreEnv("MODEL_PROVIDER", previousEnv.MODEL_PROVIDER);
   restoreEnv("MODEL_BASE_URL", previousEnv.MODEL_BASE_URL);
   restoreEnv("MODEL_API_KEY", previousEnv.MODEL_API_KEY);
@@ -147,11 +145,13 @@ describe("watchlist store", () => {
     expect(appleMetrics).toMatchObject({
       costValue: 400,
       marketValue: 453.68,
+      todayPnl: 4.62,
       unrealizedPnl: 53.68000000000001,
     });
     expect(appleMetrics?.unrealizedPnlPercent).toBeCloseTo(13.42);
     expect(microsoftMetrics?.costValue).toBe(780);
     expect(microsoftMetrics?.marketValue).toBeCloseTo(768.3);
+    expect(microsoftMetrics?.todayPnl).toBeCloseTo(-2.16);
     expect(microsoftMetrics?.unrealizedPnl).toBeCloseTo(-11.7);
     expect(microsoftMetrics?.unrealizedPnlPercent).toBeCloseTo(-1.5);
   });
@@ -172,6 +172,12 @@ describe("watchlist store", () => {
 
     await expect(
       updateWatchlistHolding(item.id, { costPrice: 0, shares: 1 }),
+    ).rejects.toThrow("成本价和股票数必须大于 0");
+    await expect(
+      updateWatchlistHolding(item.id, { costPrice: -1, shares: 1 }),
+    ).rejects.toThrow("成本价和股票数必须大于 0");
+    await expect(
+      updateWatchlistHolding(item.id, { costPrice: 1, shares: 0 }),
     ).rejects.toThrow("成本价和股票数必须大于 0");
     await expect(updateWatchlistHolding(item.id, { costPrice: 1 })).rejects.toThrow(
       "请同时填写成本价和股票数",
@@ -232,8 +238,6 @@ describe("watchlist store", () => {
   });
 
   it("stores SMTP settings from the settings page", async () => {
-    process.env.SETTINGS_ENCRYPTION_KEY = "test-encryption-key";
-
     await upsertEmailIntegration({
       smtpUrl: "smtps://user:auth-code@smtp.qq.com:465",
       from: "user@qq.com",

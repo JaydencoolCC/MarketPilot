@@ -3,13 +3,14 @@ import type { WatchlistRow } from "@/lib/domain/types";
 export type StockHoldingMetrics = {
   costValue: number;
   marketValue: number;
+  todayPnl: number;
   unrealizedPnl: number;
-  unrealizedPnlPercent: number;
+  unrealizedPnlPercent: number | null;
   currency: string;
 };
 
 export function hasStockHolding(row: Pick<WatchlistRow, "costPrice" | "shares">) {
-  return Number(row.costPrice) > 0 && Number(row.shares) > 0;
+  return row.costPrice !== undefined && Number(row.shares) > 0;
 }
 
 export function calculateStockHolding(row: WatchlistRow): StockHoldingMetrics | null {
@@ -17,13 +18,16 @@ export function calculateStockHolding(row: WatchlistRow): StockHoldingMetrics | 
 
   const costValue = row.costPrice! * row.shares!;
   const marketValue = row.quote.price * row.shares!;
+  const todayPnl = row.quote.change * row.shares!;
   const unrealizedPnl = marketValue - costValue;
+  const costBasis = Math.abs(costValue);
 
   return {
     costValue,
     marketValue,
+    todayPnl,
     unrealizedPnl,
-    unrealizedPnlPercent: costValue === 0 ? 0 : (unrealizedPnl / costValue) * 100,
+    unrealizedPnlPercent: costBasis === 0 ? null : (unrealizedPnl / costBasis) * 100,
     currency: row.quote.currency,
   };
 }

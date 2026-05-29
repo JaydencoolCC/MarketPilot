@@ -25,8 +25,6 @@ QUOTE_PROVIDER="auto"
 NEWS_PROVIDER="public"
 MODEL_PROVIDER="openai-compatible"
 EMAIL_PROVIDER="smtp"
-APP_PASSWORD="替换为强随机密码"
-SETTINGS_ENCRYPTION_KEY="替换为32字节以上强随机字符串"
 APP_TIMEZONE="Asia/Shanghai"
 ```
 
@@ -87,15 +85,13 @@ CONDA_ENV=trade ./scripts/start-production.sh
 基金刷新可按需要定时调用：
 
 ```bash
-curl -X POST http://127.0.0.1:3000/api/jobs/refresh-funds \
-  -H "Authorization: Bearer $APP_PASSWORD"
+curl -X POST http://127.0.0.1:3000/api/jobs/refresh-funds
 ```
 
 每日摘要接口仍可手动调用；接口会根据邮件设置里的发送时间、时区和当天发送记录自行判断是否真正发送，避免重复发送。
 
 ```bash
-curl -X POST http://127.0.0.1:3000/api/jobs/daily-digest \
-  -H "Authorization: Bearer $APP_PASSWORD"
+curl -X POST http://127.0.0.1:3000/api/jobs/daily-digest
 ```
 
 ## 5. 进程托管建议

@@ -125,7 +125,7 @@ function quoteFromSnapshot(snapshot: QuoteSnapshotRecord): Quote {
     marketStatus: snapshot.marketStatus as Quote["marketStatus"],
     provider: snapshot.provider,
     quoteTime: snapshot.quoteTime.toISOString(),
-    fetchedAt: snapshot.createdAt?.toISOString(),
+    fetchedAt: (snapshot.updatedAt ?? snapshot.createdAt)?.toISOString(),
     status: snapshot.errorCode ? "error" : "ok",
     errorCode: snapshot.errorCode ?? undefined,
     errorMessage: snapshot.errorMessage ?? undefined,
@@ -881,7 +881,6 @@ export async function upsertModelIntegration(input: {
   const apiKey = input.apiKey?.trim();
   if (apiKey) {
     next.secret = apiKey;
-    next.encryptedSecret = undefined;
     next.secretPreview = maskSecret(apiKey);
     next.lastTestStatus = "untested";
     next.lastTestMessage = "已保存 API Key，尚未测试模型连接。";
@@ -913,7 +912,6 @@ export async function upsertEmailIntegration(input: {
   const smtpUrl = input.smtpUrl?.trim();
   if (smtpUrl) {
     next.secret = smtpUrl;
-    next.encryptedSecret = undefined;
     next.secretPreview = maskSecret(smtpUrl);
   }
 
@@ -1006,8 +1004,6 @@ function publicIntegrationFromSetting(
   kind: IntegrationKind,
   setting: IntegrationSetting | null,
 ): PublicIntegrationSetting {
-  const encryptionConfigured = true;
-
   if (kind === "model") {
     const envConfigured = Boolean(
       process.env.MODEL_BASE_URL && process.env.MODEL_API_KEY && process.env.MODEL_NAME,
@@ -1049,7 +1045,6 @@ function publicIntegrationFromSetting(
       modelName: setting?.modelName ?? process.env.MODEL_NAME,
       secretConfigured: Boolean(setting?.secret || envConfigured),
       secretPreview,
-      encryptionConfigured,
       lastTestedAt: setting?.lastTestedAt,
     };
   }
@@ -1115,7 +1110,6 @@ function publicIntegrationFromSetting(
         ? setting?.secretPreview ??
           (process.env.SMTP_URL ? maskSecret(process.env.SMTP_URL) : undefined)
         : undefined,
-    encryptionConfigured,
     lastTestedAt: setting?.lastTestedAt,
   };
 }

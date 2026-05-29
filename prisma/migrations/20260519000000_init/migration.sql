@@ -128,7 +128,7 @@ CREATE TABLE "IntegrationSetting" (
     "provider" TEXT NOT NULL,
     "baseUrl" TEXT,
     "modelName" TEXT,
-    "encryptedSecret" TEXT,
+    "secret" TEXT,
     "secretPreview" TEXT,
     "lastTestStatus" TEXT NOT NULL DEFAULT 'untested',
     "lastTestMessage" TEXT,

@@ -8,14 +8,12 @@ import { resetStoreForTests } from "@/lib/db/store";
 
 const originalFetch = global.fetch;
 const previousEnv = {
-  APP_PASSWORD: process.env.APP_PASSWORD,
   FUND_PROVIDER: process.env.FUND_PROVIDER,
   QUOTE_PROVIDER: process.env.QUOTE_PROVIDER,
 };
 
 beforeEach(() => {
   resetStoreForTests();
-  process.env.APP_PASSWORD = "secret";
   process.env.FUND_PROVIDER = "public";
   process.env.QUOTE_PROVIDER = "mock";
   global.fetch = vi.fn(async () =>
@@ -28,7 +26,6 @@ beforeEach(() => {
 afterEach(() => {
   global.fetch = originalFetch;
   resetStoreForTests();
-  restoreEnv("APP_PASSWORD", previousEnv.APP_PASSWORD);
   restoreEnv("FUND_PROVIDER", previousEnv.FUND_PROVIDER);
   restoreEnv("QUOTE_PROVIDER", previousEnv.QUOTE_PROVIDER);
 });
@@ -70,7 +67,6 @@ describe("fund APIs", () => {
   it("skips the refresh funds job when there are no funds", async () => {
     const response = await refreshFundsJob(new NextRequest("https://trade.local/api/jobs/refresh-funds", {
       method: "POST",
-      headers: { Authorization: "Bearer secret" },
     }));
     const payload = (await response.json()) as { data: { status: string; refreshed: number } };
 

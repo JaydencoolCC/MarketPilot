@@ -13,6 +13,22 @@ export function formatCurrency(value: number, currency: string) {
   }).format(value);
 }
 
+export function formatUnitPrice(value: number, currency: string) {
+  if (currency === "USD") {
+    return `$${value.toLocaleString("zh-CN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    })}`;
+  }
+
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: currency === "JPY" ? 0 : 2,
+    maximumFractionDigits: currency === "JPY" ? 0 : 4,
+  }).format(value);
+}
+
 export function formatPercent(value: number) {
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}%`;

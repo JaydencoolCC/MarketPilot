@@ -27,6 +27,16 @@ describe("PublicGoldProvider", () => {
     expect(history.points).toHaveLength(3);
   });
 
+  it("trims provider history to the requested one-day range", async () => {
+    setGoldHistoryFetcherForTest(async () => goldPoints([2000, 2010, 2020]));
+
+    const history = await new PublicGoldProvider().getHistory({ scope: "international", range: "1d" });
+
+    expect(history.points).toHaveLength(2);
+    expect(history.currentPrice).toBe(2020);
+    expect(history.changePercent).toBeCloseTo(0.497512);
+  });
+
   it("converts gold history to CNY per gram for domestic scope", async () => {
     setGoldHistoryFetcherForTest(async () => goldPoints([2000, 2020]));
     global.fetch = vi.fn(async (url) => {

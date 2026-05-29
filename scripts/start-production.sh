@@ -46,8 +46,6 @@ export EMAIL_PROVIDER="${EMAIL_PROVIDER:-smtp}"
 export APP_TIMEZONE="${APP_TIMEZONE:-Asia/Shanghai}"
 
 require_env "DATABASE_URL"
-require_env "APP_PASSWORD"
-require_env "SETTINGS_ENCRYPTION_KEY"
 
 for provider_var in QUOTE_PROVIDER NEWS_PROVIDER MODEL_PROVIDER EMAIL_PROVIDER; do
   if [[ "${!provider_var}" == "mock" ]]; then

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { Settings } from "lucide-react";
 import type { DashboardView } from "@/components/dashboard/asset-nav";
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
@@ -33,15 +34,23 @@ export default async function DashboardPage({
   return (
     <main className="mx-auto min-h-screen w-full max-w-[1720px] px-4 py-5 md:px-6 lg:px-8 2xl:px-10">
       <header className="mb-5 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-sm font-medium text-moss">个人 AI 金融信息工作台</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-normal text-ink md:text-3xl">
-            你的资产，今天我帮你盯着
-          </h1>
-          <p className="mt-2 text-sm text-muted">
-            {subtitleForView(view, { quoteProvider, fundProvider, goldProvider })}
-            。全局刷新时间：{lastUpdated}
-          </p>
+        <div className="flex items-center gap-4">
+          <Image
+            src="/brand/marketpilot-header-icon.png"
+            alt="MarketPilot"
+            width={78}
+            height={112}
+            className="h-16 w-auto shrink-0 object-contain"
+            priority
+            unoptimized
+          />
+          <div>
+            <p className="text-sm font-medium text-moss">MarketPilot · 个人 AI 金融信息工作台</p>
+            <p className="mt-2 text-sm text-muted">
+              {subtitleForView(view, { quoteProvider, fundProvider, goldProvider })}
+              。全局刷新时间：{lastUpdated}
+            </p>
+          </div>
         </div>
         <Link
           href="/settings"
