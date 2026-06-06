@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   try {
     const query = request.nextUrl.searchParams.get("q") ?? "";
     const data = await searchFunds(query);
-    return NextResponse.json({ data: data.slice(0, 8) });
+    return NextResponse.json({ data: data.slice(0, 20) });
   } catch (error) {
     const response = toErrorResponse(error);
     return NextResponse.json(response.body, { status: response.status });

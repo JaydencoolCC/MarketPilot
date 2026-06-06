@@ -13,6 +13,7 @@ export type ChatRequest = {
   articles: NewsArticle[];
   context: ChatRuntimeContext;
   history?: ChatMessage[];
+  signal?: AbortSignal;
 };
 
 export type ChatRuntimeContext = {

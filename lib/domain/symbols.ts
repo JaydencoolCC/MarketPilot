@@ -146,6 +146,14 @@ const KNOWN_SECURITIES: Record<string, Security> = {
     currency: "CNY",
     aliases: ["顺丰", "順豐", "sf holding", "shunfeng"],
   },
+  "002475.SZ": {
+    symbol: "002475",
+    normalizedSymbol: "002475.SZ",
+    market: "CN",
+    name: "立讯精密",
+    currency: "CNY",
+    aliases: ["立讯", "立訊精密", "luxshare", "luxshare precision"],
+  },
   "601728.SH": {
     symbol: "601728",
     normalizedSymbol: "601728.SH",
@@ -162,6 +170,108 @@ const KNOWN_SECURITIES: Record<string, Security> = {
     currency: "CNY",
     aliases: ["招行", "招商銀行", "cmb", "china merchants bank"],
   },
+  "7203.T": {
+    symbol: "7203",
+    normalizedSymbol: "7203.T",
+    market: "JP",
+    name: "Toyota Motor",
+    currency: "JPY",
+    aliases: ["丰田", "豐田", "toyota", "toyota motor", "fengtian"],
+  },
+  "6758.T": {
+    symbol: "6758",
+    normalizedSymbol: "6758.T",
+    market: "JP",
+    name: "Sony Group",
+    currency: "JPY",
+    aliases: ["索尼", "sony", "sony group", "suoni"],
+  },
+  "7974.T": {
+    symbol: "7974",
+    normalizedSymbol: "7974.T",
+    market: "JP",
+    name: "Nintendo",
+    currency: "JPY",
+    aliases: ["任天堂", "nintendo", "rentian tang"],
+  },
+  "^N225": {
+    symbol: "^N225",
+    normalizedSymbol: "^N225",
+    market: "JP",
+    name: "日经225",
+    currency: "JPY",
+    aliases: ["日经", "日經", "日经平均", "日經平均", "nikkei", "nikkei 225", "nikkei stock average"],
+  },
+  "^TOPX": {
+    symbol: "^TOPX",
+    normalizedSymbol: "^TOPX",
+    market: "JP",
+    name: "TOPIX",
+    currency: "JPY",
+    aliases: ["东证指数", "東證指數", "东京证交所指数", "東京證交所指數", "topix"],
+  },
+  "^NDX": {
+    symbol: "^NDX",
+    normalizedSymbol: "^NDX",
+    market: "US",
+    name: "Nasdaq 100",
+    currency: "USD",
+    aliases: ["纳斯达克100", "納斯達克100", "纳指100", "nasdaq 100", "ndx"],
+  },
+  "^GSPC": {
+    symbol: "^GSPC",
+    normalizedSymbol: "^GSPC",
+    market: "US",
+    name: "S&P 500",
+    currency: "USD",
+    aliases: ["标普500", "標普500", "sp500", "s&p 500", "inx"],
+  },
+  "^DJI": {
+    symbol: "^DJI",
+    normalizedSymbol: "^DJI",
+    market: "US",
+    name: "Dow Jones Industrial Average",
+    currency: "USD",
+    aliases: ["道琼斯", "道瓊斯", "dow jones", "dji"],
+  },
+  "^IXIC": {
+    symbol: "^IXIC",
+    normalizedSymbol: "^IXIC",
+    market: "US",
+    name: "Nasdaq Composite",
+    currency: "USD",
+    aliases: ["纳斯达克综合", "納斯達克綜合", "纳指综合", "nasdaq composite", "ixic"],
+  },
+};
+
+const INDEX_SYMBOLS: Record<string, { normalizedSymbol: string; xueqiuSymbol?: string }> = {
+  "^NDX": { normalizedSymbol: "^NDX", xueqiuSymbol: ".NDX" },
+  ".NDX": { normalizedSymbol: "^NDX", xueqiuSymbol: ".NDX" },
+  ".NDX.US": { normalizedSymbol: "^NDX", xueqiuSymbol: ".NDX" },
+  "NDX": { normalizedSymbol: "^NDX", xueqiuSymbol: ".NDX" },
+  "NDX.US": { normalizedSymbol: "^NDX", xueqiuSymbol: ".NDX" },
+  "NASDAQ100": { normalizedSymbol: "^NDX", xueqiuSymbol: ".NDX" },
+  "NASDAQ-100": { normalizedSymbol: "^NDX", xueqiuSymbol: ".NDX" },
+  "^GSPC": { normalizedSymbol: "^GSPC", xueqiuSymbol: ".INX" },
+  ".INX": { normalizedSymbol: "^GSPC", xueqiuSymbol: ".INX" },
+  ".INX.US": { normalizedSymbol: "^GSPC", xueqiuSymbol: ".INX" },
+  "INX": { normalizedSymbol: "^GSPC", xueqiuSymbol: ".INX" },
+  "INX.US": { normalizedSymbol: "^GSPC", xueqiuSymbol: ".INX" },
+  "GSPC": { normalizedSymbol: "^GSPC", xueqiuSymbol: ".INX" },
+  "^SPX": { normalizedSymbol: "^GSPC", xueqiuSymbol: ".INX" },
+  "SPX": { normalizedSymbol: "^GSPC", xueqiuSymbol: ".INX" },
+  "^DJI": { normalizedSymbol: "^DJI", xueqiuSymbol: ".DJI" },
+  ".DJI": { normalizedSymbol: "^DJI", xueqiuSymbol: ".DJI" },
+  ".DJI.US": { normalizedSymbol: "^DJI", xueqiuSymbol: ".DJI" },
+  "DJI": { normalizedSymbol: "^DJI", xueqiuSymbol: ".DJI" },
+  "DJI.US": { normalizedSymbol: "^DJI", xueqiuSymbol: ".DJI" },
+  "^IXIC": { normalizedSymbol: "^IXIC", xueqiuSymbol: ".IXIC" },
+  ".IXIC": { normalizedSymbol: "^IXIC", xueqiuSymbol: ".IXIC" },
+  ".IXIC.US": { normalizedSymbol: "^IXIC", xueqiuSymbol: ".IXIC" },
+  "IXIC": { normalizedSymbol: "^IXIC", xueqiuSymbol: ".IXIC" },
+  "IXIC.US": { normalizedSymbol: "^IXIC", xueqiuSymbol: ".IXIC" },
+  "^N225": { normalizedSymbol: "^N225" },
+  "^TOPX": { normalizedSymbol: "^TOPX" },
 };
 
 export function normalizeSymbol(symbol: string, market?: Market): string {
@@ -171,7 +281,17 @@ export function normalizeSymbol(symbol: string, market?: Market): string {
     throw new AppError("VALIDATION_ERROR", "请输入股票代码", 400);
   }
 
-  if (!/^[A-Z0-9.]+$/.test(cleaned)) {
+  const indexSymbol = INDEX_SYMBOLS[cleaned]?.normalizedSymbol ?? cleaned;
+  if (indexSymbol.startsWith("^")) {
+    return indexSymbol;
+  }
+
+  const prefixedChinaSymbol = /^(SH|SZ)(\d{6})$/.exec(indexSymbol);
+  if (prefixedChinaSymbol) {
+    return `${prefixedChinaSymbol[2]}.${prefixedChinaSymbol[1]}`;
+  }
+
+  if (!/^[A-Z0-9.]+$/.test(indexSymbol)) {
     throw new AppError(
       "VALIDATION_ERROR",
       "请输入有效股票代码，或先从搜索结果里选择证券。",
@@ -179,37 +299,52 @@ export function normalizeSymbol(symbol: string, market?: Market): string {
     );
   }
 
-  if (/\.(US|HK|SH|SZ)$/.test(cleaned)) {
-    return cleaned;
+  if (/^\.[A-Z0-9]+(?:\.US)?$/.test(indexSymbol)) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "暂不支持该指数代码，请先从搜索结果里选择证券。",
+      400,
+    );
+  }
+
+  if (/\.(US|HK|SH|SZ|T)$/.test(indexSymbol)) {
+    return indexSymbol;
   }
 
   if (market === "US") {
-    return `${cleaned}.US`;
+    return `${indexSymbol}.US`;
   }
 
   if (market === "HK") {
-    return `${cleaned.replace(/^0+(?=\d)/, "")}.HK`;
+    return `${indexSymbol.replace(/^0+(?=\d)/, "")}.HK`;
   }
 
   if (market === "CN") {
-    return `${cleaned}.${cleaned.startsWith("6") ? "SH" : "SZ"}`;
+    return `${indexSymbol}.${indexSymbol.startsWith("6") ? "SH" : "SZ"}`;
   }
 
-  if (/^\d{6}$/.test(cleaned)) {
-    return `${cleaned}.${cleaned.startsWith("6") ? "SH" : "SZ"}`;
+  if (market === "JP") {
+    return `${indexSymbol}.T`;
   }
 
-  if (/^\d{1,5}$/.test(cleaned)) {
-    return `${cleaned.replace(/^0+(?=\d)/, "")}.HK`;
+  if (/^\d{6}$/.test(indexSymbol)) {
+    return `${indexSymbol}.${indexSymbol.startsWith("6") ? "SH" : "SZ"}`;
   }
 
-  return `${cleaned}.US`;
+  if (/^\d{1,5}$/.test(indexSymbol)) {
+    return `${indexSymbol.replace(/^0+(?=\d)/, "")}.HK`;
+  }
+
+  return `${indexSymbol}.US`;
 }
 
 export function marketFromSymbol(normalizedSymbol: string): Market {
   if (normalizedSymbol.endsWith(".US")) return "US";
   if (normalizedSymbol.endsWith(".HK")) return "HK";
   if (normalizedSymbol.endsWith(".SH") || normalizedSymbol.endsWith(".SZ")) return "CN";
+  if (normalizedSymbol.endsWith(".T")) return "JP";
+  if (normalizedSymbol === "^N225" || normalizedSymbol === "^TOPX") return "JP";
+  if (KNOWN_SECURITIES[normalizedSymbol]?.market) return KNOWN_SECURITIES[normalizedSymbol].market;
   throw new Error(`无法识别市场：${normalizedSymbol}`);
 }
 
@@ -227,7 +362,7 @@ export function securityFromSymbol(symbol: string, market?: Market): Security {
     normalizedSymbol,
     market: resolvedMarket,
     name: normalizedSymbol,
-    currency: resolvedMarket === "US" ? "USD" : resolvedMarket === "HK" ? "HKD" : "CNY",
+    currency: resolvedMarket === "US" ? "USD" : resolvedMarket === "HK" ? "HKD" : resolvedMarket === "JP" ? "JPY" : "CNY",
   };
 }
 
@@ -247,4 +382,8 @@ export function searchKnownSecurities(keyword: string, market?: Market): Securit
       haystack.some((value) => query.includes(value));
     return matchesMarket && matchesQuery;
   });
+}
+
+export function xueqiuIndexSymbolFor(normalizedSymbol: string) {
+  return INDEX_SYMBOLS[normalizeSymbol(normalizedSymbol)]?.xueqiuSymbol;
 }

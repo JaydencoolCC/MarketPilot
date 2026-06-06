@@ -9,11 +9,13 @@ describe("format utilities", () => {
   it("formats USD prices without the US currency prefix", () => {
     expect(formatCurrency(81.48, "USD")).toBe("$81.48");
     expect(formatCurrency(441.4, "HKD")).toBe("HK$441.40");
+    expect(formatCurrency(2988, "JPY")).toBe("JP¥2,988");
   });
 
   it("keeps extra precision for unit prices", () => {
     expect(formatUnitPrice(6.1956, "CNY")).toBe("¥6.1956");
     expect(formatUnitPrice(6.1, "CNY")).toBe("¥6.10");
     expect(formatUnitPrice(81.4876, "USD")).toBe("$81.4876");
+    expect(formatUnitPrice(2988, "JPY")).toBe("JP¥2,988");
   });
 });

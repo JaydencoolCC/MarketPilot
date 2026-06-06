@@ -10,6 +10,7 @@ enum Market {
   US
   HK
   CN
+  JP
 }
 
 model WatchlistItem {
@@ -34,6 +35,8 @@ model FundWatchlistItem {
   market           Market?
   name             String
   currency         String
+  costPrice        Decimal?       @db.Decimal(18, 6)
+  shares           Decimal?       @db.Decimal(18, 6)
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   snapshots        FundSnapshot[]

@@ -5,7 +5,7 @@ import { addWatchlistItem, listWatchlistRows, refreshQuotes } from "@/lib/db/sto
 
 const addWatchlistSchema = z.object({
   symbol: z.string().min(1),
-  market: z.enum(["US", "HK", "CN"]).optional(),
+  market: z.enum(["US", "HK", "CN", "JP"]).optional(),
 });
 
 export async function GET() {

@@ -1,4 +1,4 @@
-export type Market = "US" | "HK" | "CN";
+export type Market = "US" | "HK" | "CN" | "JP";
 
 export type DataStatus = "ok" | "stale" | "error";
 
@@ -57,6 +57,8 @@ export type FundItem = {
   market?: Market;
   name: string;
   currency: string;
+  costPrice?: number;
+  shares?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -198,4 +200,8 @@ export type PublicIntegrationSetting = {
   secretConfigured: boolean;
   secretPreview?: string;
   lastTestedAt?: string;
+};
+
+export type MarketDataNetworkSetting = {
+  proxyUrl?: string;
 };

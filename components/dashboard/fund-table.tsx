@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { FundHolding, FundRow, FundSearchResult, FundSnapshot } from "@/lib/domain/types";
-import { xueqiuFundUrl } from "@/lib/domain/xueqiu";
+import { fundDetailUrl } from "@/lib/domain/xueqiu";
 import { cn } from "@/lib/utils/cn";
 import { formatClockTime, formatCurrency, formatPercent } from "@/lib/utils/format";
 
@@ -132,7 +132,7 @@ export function FundTable({ initialRows }: FundTableProps) {
       const response = await fetch("/api/funds", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol, type: selectedFund?.type }),
+        body: JSON.stringify({ symbol, type: selectedFund?.type, name: selectedFund?.name }),
       });
       const payload = (await response.json()) as {
         data?: FundRow;
@@ -213,12 +213,12 @@ export function FundTable({ initialRows }: FundTableProps) {
             autoComplete="off"
           />
           {suggestions.length > 0 ? (
-            <div className="absolute left-0 right-0 top-12 z-20 overflow-hidden rounded-lg border border-line bg-white shadow-soft">
+            <div className="absolute left-0 right-0 top-12 z-20 max-h-96 overflow-y-auto rounded-lg border border-line bg-white shadow-soft">
               {suggestions.map((fund) => (
                 <button
                   key={fund.normalizedSymbol}
                   type="button"
-                  className="flex w-full items-center justify-between gap-3 border-b border-line/60 px-4 py-3 text-left last:border-b-0 hover:bg-moss/5"
+                  className="flex min-h-[68px] w-full items-center justify-between gap-3 border-b border-line/60 px-4 py-3 text-left last:border-b-0 hover:bg-moss/5"
                   onMouseDown={(event) => {
                     event.preventDefault();
                     chooseFund(fund);
@@ -312,7 +312,7 @@ export function FundTable({ initialRows }: FundTableProps) {
                     <td className="px-4 py-4">
                       <div className="flex justify-end gap-1">
                         <a
-                          href={xueqiuFundUrl(row.normalizedSymbol)}
+                          href={fundDetailUrl(row.normalizedSymbol)}
                           target="_blank"
                           rel="noreferrer"
                           aria-label="查看详情"

@@ -29,6 +29,42 @@ describe("SinaQuoteProvider", () => {
     });
   });
 
+  it("uses the company name field when Sina returns a code-like display name", async () => {
+    const body = new Uint8Array(iconv.encode(
+      'var suggestvalue="sz002475,11,002475,sz002475,立讯精密,lixunjingmi";',
+      "gb18030",
+    ));
+    global.fetch = vi.fn(async () => new Response(body)) as typeof fetch;
+
+    const results = await new SinaQuoteProvider().searchSymbols("002475", "CN");
+
+    expect(results[0]).toMatchObject({
+      name: "立讯精密",
+      symbol: "002475",
+      normalizedSymbol: "002475.SZ",
+      market: "CN",
+      currency: "CNY",
+    });
+  });
+
+  it("can save remote names for A-share symbols that are not in the local known list", async () => {
+    const body = new Uint8Array(iconv.encode(
+      'var suggestvalue="sz300750,11,300750,sz300750,宁德时代,ningdeshidai";',
+      "gb18030",
+    ));
+    global.fetch = vi.fn(async () => new Response(body)) as typeof fetch;
+
+    const results = await new SinaQuoteProvider().searchSymbols("300750", "CN");
+
+    expect(results[0]).toMatchObject({
+      name: "宁德时代",
+      symbol: "300750",
+      normalizedSymbol: "300750.SZ",
+      market: "CN",
+      currency: "CNY",
+    });
+  });
+
   it("keeps local known securities as a fallback when search is unavailable", async () => {
     global.fetch = vi.fn(async () => new Response("unavailable", { status: 503 })) as typeof fetch;
 

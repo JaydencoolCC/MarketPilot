@@ -48,7 +48,7 @@ export class MockNewsProvider implements NewsProvider {
   async fetchMarketNews(input: NewsQuery): Promise<NewsArticle[]> {
     const now = Date.now();
     const symbols = new Set(input.symbols);
-    const markets = new Set(input.markets ?? ["US", "HK", "CN", "GLOBAL"]);
+    const markets = new Set(input.markets ?? ["US", "HK", "CN", "JP", "GLOBAL"]);
     const maxAgeHours = input.hours ?? 24;
 
     return NEWS_FIXTURES.filter((article) => article.ageHours <= maxAgeHours)

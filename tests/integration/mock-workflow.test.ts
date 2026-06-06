@@ -73,8 +73,13 @@ async function readTextStream(response: Response) {
 
 describe("mock provider workflow", () => {
   it("runs the MVP path from watchlist to quotes, news, digest email, and chat", async () => {
-    for (const symbol of ["AAPL.US", "700.HK", "600519.SH"]) {
-      const response = await addWatchlist(jsonRequest("https://trade.local/api/watchlist", { symbol }));
+    for (const input of [
+      { symbol: "AAPL.US" },
+      { symbol: "700.HK" },
+      { symbol: "600519.SH" },
+      { symbol: "7203", market: "JP" },
+    ]) {
+      const response = await addWatchlist(jsonRequest("https://trade.local/api/watchlist", input));
       expect(response.status).toBe(201);
     }
 
@@ -83,6 +88,7 @@ describe("mock provider workflow", () => {
       data: Array<{ id: string; normalizedSymbol: string; quote?: { status: string } }>;
     };
     expect(watchlistPayload.data.map((row) => row.normalizedSymbol)).toEqual([
+      "7203.T",
       "600519.SH",
       "700.HK",
       "AAPL.US",
@@ -96,17 +102,17 @@ describe("mock provider workflow", () => {
     const deletedPayload = (await deletedResponse.json()) as {
       data: Array<{ normalizedSymbol: string }>;
     };
-    expect(deletedPayload.data.map((row) => row.normalizedSymbol)).toEqual(["700.HK", "AAPL.US"]);
+    expect(deletedPayload.data.map((row) => row.normalizedSymbol)).toEqual(["600519.SH", "700.HK", "AAPL.US"]);
 
-    await addWatchlist(jsonRequest("https://trade.local/api/watchlist", { symbol: "600519.SH" }));
+    await addWatchlist(jsonRequest("https://trade.local/api/watchlist", { symbol: "7203.T" }));
 
     const quotesResponse = await getQuotes(
-      new NextRequest("https://trade.local/api/quotes?symbols=AAPL.US,700.HK,600519.SH"),
+      new NextRequest("https://trade.local/api/quotes?symbols=AAPL.US,700.HK,600519.SH,7203.T"),
     );
     const quotesPayload = (await quotesResponse.json()) as {
       data: Array<{ symbol: string; provider: string; status: string }>;
     };
-    expect(quotesPayload.data).toHaveLength(3);
+    expect(quotesPayload.data).toHaveLength(4);
     expect(quotesPayload.data.every((quote) => quote.provider === "mock")).toBe(true);
 
     const newsResponse = await getNews(
@@ -124,7 +130,7 @@ describe("mock provider workflow", () => {
           recipientEmail: "me@example.com",
           sendTime: "08:30",
           timezone: "Asia/Shanghai",
-          markets: ["US", "HK", "CN"],
+          markets: ["US", "HK", "CN", "JP"],
           watchlistOnly: true,
         }),
       }),

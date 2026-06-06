@@ -8,7 +8,7 @@ const emailSettingSchema = z.object({
   recipientEmail: z.string().email().or(z.literal("")),
   sendTime: z.string().regex(/^\d{2}:\d{2}$/),
   timezone: z.string().min(1),
-  markets: z.array(z.enum(["US", "HK", "CN"])).min(1),
+  markets: z.array(z.enum(["US", "HK", "CN", "JP"])).min(1),
   watchlistOnly: z.boolean(),
 });
 

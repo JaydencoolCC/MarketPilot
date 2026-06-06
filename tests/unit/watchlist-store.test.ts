@@ -3,6 +3,7 @@ import {
   addWatchlistItem,
   deleteWatchlistItem,
   getEmailSetting,
+  getLiveQuotes,
   getWatchlistItems,
   listPublicIntegrations,
   listWatchlistRows,
@@ -53,13 +54,15 @@ function restoreEnv(key: keyof NodeJS.ProcessEnv, value: string | undefined) {
 }
 
 describe("watchlist store", () => {
-  it("adds normalized US, HK, and CN symbols with quote snapshots", async () => {
+  it("adds normalized US, HK, CN, and JP symbols with quote snapshots", async () => {
     await addWatchlistItem({ symbol: "aapl" });
     await addWatchlistItem({ symbol: "00700", market: "HK" });
     await addWatchlistItem({ symbol: "600519" });
+    await addWatchlistItem({ symbol: "7203", market: "JP" });
 
     const rows = await listWatchlistRows();
     expect(rows.map((row) => row.normalizedSymbol)).toEqual([
+      "7203.T",
       "600519.SH",
       "700.HK",
       "AAPL.US",
@@ -78,14 +81,34 @@ describe("watchlist store", () => {
     expect(await getWatchlistItems()).toHaveLength(0);
   });
 
+  it("displays canonical symbols for supported index aliases", async () => {
+    await addWatchlistItem({ symbol: ".NDX.US" });
+
+    const [item] = await getWatchlistItems();
+    expect(item).toMatchObject({
+      symbol: "^NDX",
+      normalizedSymbol: "^NDX",
+      market: "US",
+      name: "Nasdaq 100",
+      currency: "USD",
+    });
+  });
+
+  it("rejects unsupported dot-prefixed index aliases before adding watchlist rows", async () => {
+    await expect(addWatchlistItem({ symbol: ".FOO.US" })).rejects.toThrow("暂不支持该指数代码");
+    expect(await getWatchlistItems()).toHaveLength(0);
+  });
+
   it("uses company names for known HK and A-share symbols", async () => {
     await addWatchlistItem({ symbol: "000001.SH" });
     await addWatchlistItem({ symbol: "1810.HK" });
     await addWatchlistItem({ symbol: "000725.SZ" });
     await addWatchlistItem({ symbol: "000876.SZ" });
     await addWatchlistItem({ symbol: "002352.SZ" });
+    await addWatchlistItem({ symbol: "sz002475" });
 
     expect((await getWatchlistItems()).map((item) => item.name)).toEqual([
+      "立讯精密",
       "顺丰控股",
       "新希望",
       "京东方A",
@@ -103,6 +126,26 @@ describe("watchlist store", () => {
     expect(row?.normalizedSymbol).toBe("AAPL.US");
     expect(row?.dataStatus).toBe("error");
     expect(row?.quote?.errorMessage).toContain("行情暂时不可用");
+  });
+
+  it("does not replace a successful quote snapshot with a transient provider failure", async () => {
+    await addWatchlistItem({ symbol: "AAPL.US" });
+    const [healthyRow] = await listWatchlistRows();
+
+    expect(healthyRow?.quote?.status).toBe("ok");
+    process.env.QUOTE_PROVIDER = "unavailable";
+
+    const [liveQuote] = await getLiveQuotes(["AAPL.US"]);
+    expect(liveQuote).toMatchObject({
+      symbol: "AAPL.US",
+      status: "stale",
+      price: healthyRow.quote?.price,
+    });
+
+    const [rowAfterFailure] = await listWatchlistRows();
+    expect(rowAfterFailure?.dataStatus).toBe("ok");
+    expect(rowAfterFailure?.quote?.status).toBe("ok");
+    expect(rowAfterFailure?.quote?.price).toBe(healthyRow.quote?.price);
   });
 
   it("stores, updates, and clears stock holding inputs", async () => {
@@ -190,7 +233,7 @@ describe("watchlist store", () => {
       recipientEmail: "me@example.com",
       sendTime: "09:15",
       timezone: "Asia/Shanghai",
-      markets: ["US", "HK"],
+      markets: ["US", "HK", "JP"],
       watchlistOnly: true,
     });
 
@@ -198,7 +241,7 @@ describe("watchlist store", () => {
       enabled: true,
       recipientEmail: "me@example.com",
       sendTime: "09:15",
-      markets: ["US", "HK"],
+      markets: ["US", "HK", "JP"],
       watchlistOnly: true,
     });
     await expect(getEmailSetting()).resolves.toMatchObject({

@@ -1,17 +1,20 @@
 import Link from "next/link";
 import { BadgeDollarSign, BriefcaseBusiness, ChartNoAxesCombined, Gem } from "lucide-react";
+import { useLocale } from "@/components/i18n/locale-provider";
 import { cn } from "@/lib/utils/cn";
 
 export type DashboardView = "stocks" | "holdings" | "funds" | "gold";
 
 const items = [
-  { id: "stocks", label: "股票", href: "/?view=stocks", icon: ChartNoAxesCombined },
-  { id: "holdings", label: "持仓", href: "/?view=holdings", icon: BriefcaseBusiness },
-  { id: "funds", label: "基金", href: "/?view=funds", icon: BadgeDollarSign },
-  { id: "gold", label: "黄金", href: "/?view=gold", icon: Gem },
+  { id: "stocks", href: "/?view=stocks", icon: ChartNoAxesCombined },
+  { id: "holdings", href: "/?view=holdings", icon: BriefcaseBusiness },
+  { id: "funds", href: "/?view=funds", icon: BadgeDollarSign },
+  { id: "gold", href: "/?view=gold", icon: Gem },
 ] as const;
 
 export function AssetNav({ active }: { active: DashboardView }) {
+  const { t } = useLocale();
+
   return (
     <nav className="flex gap-2 lg:sticky lg:top-5 lg:flex-col">
       {items.map((item) => {
@@ -29,7 +32,7 @@ export function AssetNav({ active }: { active: DashboardView }) {
             )}
           >
             <Icon className="h-4 w-4" />
-            {item.label}
+            {t.nav[item.id]}
           </Link>
         );
       })}

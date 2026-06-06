@@ -1,6 +1,7 @@
 import { AppError } from "@/lib/domain/errors";
 import type { Market, NewsArticle } from "@/lib/domain/types";
 import { marketFromSymbol, normalizeSymbol } from "@/lib/domain/symbols";
+import { marketDataFetch } from "@/lib/providers/market-data-network";
 import type { NewsProvider, NewsQuery } from "@/lib/providers/news/types";
 
 type AlphaVantageNewsResponse = {
@@ -43,7 +44,7 @@ export class AlphaVantageNewsProvider implements NewsProvider {
       url.searchParams.set("tickers", tickers.join(","));
     }
 
-    const response = await fetch(url, { cache: "no-store" });
+    const response = await marketDataFetch(url, { cache: "no-store" });
     if (!response.ok) {
       throw new AppError("PROVIDER_UNAVAILABLE", "Alpha Vantage 新闻请求失败。", 503);
     }

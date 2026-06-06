@@ -123,6 +123,14 @@ const BASE_QUOTES: Record<string, Omit<Quote, "quoteTime" | "provider" | "status
     currency: "CNY",
     marketStatus: "closed",
   },
+  "7203.T": {
+    symbol: "7203.T",
+    price: 2988,
+    change: 31,
+    changePercent: 1.05,
+    currency: "JPY",
+    marketStatus: "closed",
+  },
 };
 
 function syntheticQuote(symbol: string): Omit<Quote, "quoteTime" | "provider" | "status"> {

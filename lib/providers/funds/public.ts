@@ -1,6 +1,7 @@
 import { AppError } from "@/lib/domain/errors";
 import { fundFromSymbol, fundTypeFromSymbol, normalizeFundSymbol, searchKnownFunds } from "@/lib/domain/funds";
 import type { FundHolding, FundSearchResult, FundSnapshot } from "@/lib/domain/types";
+import { marketDataFetch } from "@/lib/providers/market-data-network";
 import { getQuoteProvider } from "@/lib/providers/quotes";
 import type { FundProvider } from "@/lib/providers/funds/types";
 
@@ -28,12 +29,25 @@ type EastmoneyFundSearchResponse = {
   Datas?: EastmoneyFundSearchItem[];
 };
 
+type EastmoneyFundCodeListItem = [
+  code?: string,
+  pinyin?: string,
+  name?: string,
+  fundType?: string,
+  pinyinInitials?: string,
+];
+
 export class PublicFundProvider implements FundProvider {
   async searchFunds(keyword: string): Promise<FundSearchResult[]> {
     const query = keyword.trim();
     const known = searchKnownFunds(query);
-    const remote = await searchEastmoneyFunds(query).catch(() => []);
-    return mergeFunds(remote, known).slice(0, 12);
+    const results = await Promise.allSettled([
+      searchEastmoneyFunds(query),
+      searchEastmoneyFundCodeList(query),
+      searchSinaListedFunds(query),
+    ]);
+    const remote = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+    return rankFunds(mergeFunds(remote, known), query).slice(0, 20);
   }
 
   async getFundSnapshots(symbols: string[]): Promise<FundSnapshot[]> {
@@ -89,7 +103,7 @@ async function searchEastmoneyFunds(keyword: string): Promise<FundSearchResult[]
   url.searchParams.set("m", "1");
   url.searchParams.set("key", keyword);
 
-  const response = await fetch(url, {
+  const response = await marketDataFetch(url, {
     cache: "no-store",
     headers: {
       Referer: "https://fund.eastmoney.com/",
@@ -121,13 +135,72 @@ async function searchEastmoneyFunds(keyword: string): Promise<FundSearchResult[]
   });
 }
 
+async function searchEastmoneyFundCodeList(keyword: string): Promise<FundSearchResult[]> {
+  if (!keyword) return [];
+  const url = new URL("https://fund.eastmoney.com/js/fundcode_search.js");
+  const response = await marketDataFetch(url, {
+    cache: "no-store",
+    headers: {
+      Referer: "https://fund.eastmoney.com/",
+      "User-Agent": "Mozilla/5.0",
+    },
+  });
+  if (!response.ok) {
+    throw new AppError("PROVIDER_UNAVAILABLE", `东方财富基金列表请求失败：${response.status}`, 503);
+  }
+
+  const text = await response.text();
+  const list = parseEastmoneyFundCodeList(text);
+  const query = keyword.trim().toUpperCase();
+  return list
+    .filter((item) => {
+      const [code, pinyin, name, fundType, pinyinInitials] = item;
+      const haystack = [code, pinyin, name, fundType, pinyinInitials]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => value.toUpperCase());
+      return haystack.some((value) => value.includes(query));
+    })
+    .flatMap((item) => {
+      const [code, _pinyin, name] = item;
+      if (!code || !name || !/^\d{6}$/.test(code)) return [];
+      return [{
+        code,
+        normalizedSymbol: `${code}.FUND`,
+        type: "mutual_fund",
+        name,
+        currency: "CNY",
+      } satisfies FundSearchResult];
+    });
+}
+
+async function searchSinaListedFunds(keyword: string): Promise<FundSearchResult[]> {
+  if (!keyword) return [];
+  const url = new URL("https://suggest3.sinajs.cn/suggest/type=");
+  url.searchParams.set("key", keyword);
+  url.searchParams.set("name", "suggestvalue");
+
+  const response = await marketDataFetch(url, {
+    cache: "no-store",
+    headers: {
+      Referer: "https://finance.sina.com.cn/",
+      "User-Agent": "Mozilla/5.0",
+    },
+  });
+  if (!response.ok) {
+    throw new AppError("PROVIDER_UNAVAILABLE", `Sina 基金搜索请求失败：${response.status}`, 503);
+  }
+
+  const text = new TextDecoder("gb18030").decode(await response.arrayBuffer());
+  return parseSinaListedFunds(text);
+}
+
 async function fetchEastmoneyFundSnapshot(normalizedSymbol: string): Promise<FundSnapshot> {
   const fund = fundFromSymbol(normalizedSymbol, "mutual_fund");
   const code = fund.code;
   const url = new URL(`https://fundgz.1234567.com.cn/js/${code}.js`);
   url.searchParams.set("rt", Date.now().toString());
 
-  const response = await fetch(url, {
+  const response = await marketDataFetch(url, {
     cache: "no-store",
     headers: {
       Referer: "https://fund.eastmoney.com/",
@@ -165,7 +238,7 @@ async function fetchEastmoneyFundHoldings(normalizedSymbol: string): Promise<Fun
   url.searchParams.set("code", fund.code);
   url.searchParams.set("topline", "10");
 
-  const response = await fetch(url, {
+  const response = await marketDataFetch(url, {
     cache: "no-store",
     headers: {
       Referer: `https://fundf10.eastmoney.com/jjcc_${fund.code}.html`,
@@ -187,6 +260,63 @@ function parseEastmoneyFundJson(text: string): EastmoneyFundQuote {
     throw new AppError("PROVIDER_UNAVAILABLE", "东方财富基金没有返回可用数据。", 503);
   }
   return JSON.parse(json) as EastmoneyFundQuote;
+}
+
+function parseEastmoneyFundCodeList(text: string): EastmoneyFundCodeListItem[] {
+  const json = text.match(/var\s+r\s*=\s*(\[[\s\S]*\]);?/)?.[1];
+  if (!json) return [];
+  return JSON.parse(json) as EastmoneyFundCodeListItem[];
+}
+
+function parseSinaListedFunds(text: string): FundSearchResult[] {
+  const raw = text.match(/suggestvalue="([^"]*)"/)?.[1] ?? "";
+  if (!raw) return [];
+
+  return raw
+    .split(";")
+    .flatMap((item) => item.split("\\n"))
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .flatMap(parseSinaListedFund);
+}
+
+function parseSinaListedFund(item: string): FundSearchResult[] {
+  const fields = item.split(",");
+  const code = fields[2]?.trim();
+  const marketCode = fields[3]?.trim().toLowerCase();
+  const name = resolveSinaFundName(fields);
+  if (!code || !marketCode || !name || !/^\d{6}$/.test(code)) return [];
+  if (!isListedFundName(name)) return [];
+
+  const exchange = marketCode.startsWith("sh") ? "SH" : marketCode.startsWith("sz") ? "SZ" : listedEtfExchange(code, name);
+  if (!exchange) return [];
+
+  return [{
+    code,
+    normalizedSymbol: `${code}.${exchange}`,
+    type: "etf",
+    market: "CN",
+    name,
+    currency: "CNY",
+  }];
+}
+
+function resolveSinaFundName(fields: string[]) {
+  const code = fields[2]?.trim();
+  const marketCode = fields[3]?.trim();
+  const codeLikeNames = new Set(
+    [code, marketCode, code ? `${marketCode?.slice(0, 2) ?? ""}${code}` : undefined]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => value.toLowerCase()),
+  );
+
+  return (
+    [fields[4], fields[6], fields[0]]
+      .filter((field): field is string => Boolean(field))
+      .map((field) => field.trim())
+      .find((field) => field && !codeLikeNames.has(field.toLowerCase()) && !/^[a-z]{0,3}\d{5,6}$/i.test(field)) ??
+    fields[0]?.trim()
+  );
 }
 
 function parseEastmoneyFundHoldings(text: string): FundHolding[] {
@@ -242,11 +372,33 @@ function mergeFunds(...groups: FundSearchResult[][]) {
   return [...results.values()];
 }
 
+function rankFunds(funds: FundSearchResult[], keyword: string) {
+  const query = keyword.trim().toUpperCase();
+  return [...funds].sort((left, right) => scoreFund(right, query) - scoreFund(left, query));
+}
+
+function scoreFund(fund: FundSearchResult, query: string) {
+  const code = fund.code.toUpperCase();
+  const symbol = fund.normalizedSymbol.toUpperCase();
+  const name = fund.name.toUpperCase();
+  let score = 0;
+  if (code === query || symbol === query) score += 120;
+  if (name === query) score += 100;
+  if (code.startsWith(query) || symbol.startsWith(query)) score += 80;
+  if (name.includes(query)) score += 60;
+  if (fund.type === "etf" && /ETF/i.test(query)) score += 10;
+  return score;
+}
+
 function listedEtfExchange(code: string, name: string) {
   if (!/ETF/i.test(name) || name.includes("联接")) return undefined;
   if (code.startsWith("51") || code.startsWith("56") || code.startsWith("58")) return "SH" as const;
   if (code.startsWith("15") || code.startsWith("16")) return "SZ" as const;
   return undefined;
+}
+
+function isListedFundName(name: string) {
+  return /(ETF|REIT)/i.test(name) && !name.includes("联接");
 }
 
 function toNumber(value: string | undefined) {

@@ -2,27 +2,25 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowUp, Bot, User } from "lucide-react";
+import { ArrowUp, Bot, Square, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useLocale } from "@/components/i18n/locale-provider";
 import type { ChatMessage } from "@/lib/domain/types";
 import { cn } from "@/lib/utils/cn";
 
-const prompts = [
-  "今天我的自选股有什么重要变化？",
-  "哪些新闻最值得我继续看？",
-  "这份摘要里有哪些不确定性？",
-];
-
 export function ChatConsole() {
+  const { t } = useLocale();
   const searchParams = useSearchParams();
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const sendingRef = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
       role: "assistant",
-      content:
-        "你好，我会基于你的自选股、行情快照和相关新闻回答。涉及价格时，我会说明数据时间；信息不足时，我会直接说清楚。",
+      content: t.chat.welcome,
       createdAt: new Date().toISOString(),
     },
   ]);
@@ -33,11 +31,28 @@ export function ChatConsole() {
     messagesEndRef.current?.scrollIntoView({ block: "end" });
   }, [messages]);
 
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === "welcome" ? { ...message, content: t.chat.welcome } : message,
+      ),
+    );
+  }, [t.chat.welcome]);
+
   async function sendMessage(text = input) {
     const content = text.trim();
     if (!content) return;
+    if (sendingRef.current) return;
+    sendingRef.current = true;
     setInput("");
     setLoading(true);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -51,6 +66,11 @@ export function ChatConsole() {
       content: "",
       createdAt: new Date().toISOString(),
     };
+    const history = messages
+      .filter((message) => message.id !== "welcome" && message.content.trim())
+      .slice(-8);
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     setMessages((current) => [...current, userMessage, assistantMessage]);
 
@@ -58,7 +78,8 @@ export function ChatConsole() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: content }),
+        body: JSON.stringify({ message: content, history }),
+        signal: abortController.signal,
       });
 
       if (!response.ok) {
@@ -72,11 +93,33 @@ export function ChatConsole() {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let receivedContent = "";
 
       while (true) {
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done) {
+          const rest = decoder.decode();
+          if (rest) {
+            receivedContent += rest;
+            setMessages((current) =>
+              current.map((message) => {
+                if (message.id !== assistantMessage.id) return message;
+                return { ...message, content: `${message.content}${rest}` };
+              }),
+            );
+          }
+          if (!receivedContent.trim()) {
+            setMessages((current) =>
+              current.map((message) => {
+                if (message.id !== assistantMessage.id) return message;
+                return { ...message, content: t.chat.emptyResponse };
+              }),
+            );
+          }
+          break;
+        }
         const nextChunk = decoder.decode(value, { stream: true });
+        receivedContent += nextChunk;
         setMessages((current) =>
           current.map((message) => {
             if (message.id !== assistantMessage.id) return message;
@@ -85,22 +128,37 @@ export function ChatConsole() {
         );
       }
     } catch (error) {
-      const fallback = error instanceof Error ? error.message : "模型暂时不可用，可以稍后重试。";
+      const fallback = isAbortError(error)
+        ? t.chat.stopped
+        : error instanceof Error
+          ? error.message
+          : t.chat.unavailable;
       setMessages((current) =>
         current.map((message) =>
-          message.id === assistantMessage.id ? { ...message, content: fallback } : message,
+          message.id === assistantMessage.id
+            ? { ...message, content: message.content ? `${message.content}\n\n${fallback}` : fallback }
+            : message,
         ),
       );
     } finally {
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
+      sendingRef.current = false;
       setLoading(false);
+      window.setTimeout(() => inputRef.current?.focus(), 0);
     }
+  }
+
+  function stopResponse() {
+    abortControllerRef.current?.abort();
   }
 
   return (
     <section className="flex h-full min-h-0 flex-col rounded-lg border border-line bg-white shadow-soft">
       <div className="shrink-0 border-b border-line px-5 py-4">
-        <h2 className="text-base font-semibold text-ink">金融研究助手</h2>
-        <p className="mt-1 text-sm text-muted">直接问就行，我会先讲人话，再补关键数据和风险。</p>
+        <h2 className="text-base font-semibold text-ink">{t.chat.assistantTitle}</h2>
+        <p className="mt-1 text-sm text-muted">{t.chat.subtitle}</p>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
@@ -133,7 +191,7 @@ export function ChatConsole() {
                   <p className="whitespace-pre-wrap">{message.content}</p>
                 )
               ) : (
-                "正在整理依据..."
+                t.chat.thinking
               )}
             </div>
             {message.role === "user" && (
@@ -150,8 +208,8 @@ export function ChatConsole() {
       <div className="shrink-0 border-t border-line bg-white px-4 py-3">
         <div className="mx-auto max-w-3xl">
         <div className="mb-3 flex flex-wrap gap-2">
-          {prompts.map((prompt) => (
-            <Button key={prompt} variant="secondary" size="sm" onClick={() => sendMessage(prompt)}>
+          {t.chat.prompts.map((prompt) => (
+            <Button key={prompt} variant="secondary" size="sm" disabled={loading} onClick={() => sendMessage(prompt)}>
               {prompt}
             </Button>
           ))}
@@ -164,19 +222,31 @@ export function ChatConsole() {
           }}
         >
           <Input
+            ref={inputRef}
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder="问问今天的自选股、新闻或摘要"
-            disabled={loading}
+            placeholder={t.chat.placeholder}
           />
-          <Button type="submit" size="icon" disabled={loading || !input.trim()} aria-label="发送">
-            <ArrowUp className="h-4 w-4" />
-          </Button>
+          {loading ? (
+            <Button type="button" size="icon" aria-label={t.chat.stop} onClick={stopResponse}>
+              <Square className="h-4 w-4 fill-current" />
+            </Button>
+          ) : (
+            <Button type="submit" size="icon" disabled={!input.trim()} aria-label={t.chat.send}>
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+          )}
         </form>
         </div>
       </div>
     </section>
   );
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException
+    ? error.name === "AbortError"
+    : error instanceof Error && error.name === "AbortError";
 }
 
 function MarkdownMessage({ content }: { content: string }) {

@@ -1,6 +1,7 @@
 import { AppError } from "@/lib/domain/errors";
 import type { Market, Quote, Security } from "@/lib/domain/types";
 import { normalizeSymbol, searchKnownSecurities, securityFromSymbol } from "@/lib/domain/symbols";
+import { marketDataFetch } from "@/lib/providers/market-data-network";
 import type { QuoteProvider } from "@/lib/providers/quotes/types";
 
 type SinaRawQuote = {
@@ -16,7 +17,7 @@ export class SinaQuoteProvider implements QuoteProvider {
 
     const codeBySymbol = new Map(normalizedSymbols.map((symbol) => [symbol, toSinaCode(symbol)]));
     const url = new URL("https://hq.sinajs.cn/list=" + [...codeBySymbol.values()].join(","));
-    const response = await fetch(url, {
+    const response = await marketDataFetch(url, {
       cache: "no-store",
       headers: {
         Referer: "https://finance.sina.com.cn/",
@@ -61,7 +62,7 @@ async function searchSinaSuggestions(keyword: string, market?: Market): Promise<
   url.searchParams.set("key", keyword);
   url.searchParams.set("name", "suggestvalue");
 
-  const response = await fetch(url, {
+  const response = await marketDataFetch(url, {
     cache: "no-store",
     headers: {
       Referer: "https://finance.sina.com.cn/",
@@ -93,7 +94,7 @@ function parseSinaSuggestions(text: string, market?: Market): Security[] {
 
 function parseSinaSuggestion(item: string): Security | null {
   const fields = item.split(",");
-  const name = fields[0]?.trim();
+  const name = resolveSinaSuggestionName(fields);
   const type = fields[1]?.trim();
   const code = fields[2]?.trim();
   const marketCode = fields[3]?.trim().toLowerCase();
@@ -134,6 +135,24 @@ function parseSinaSuggestion(item: string): Security | null {
   }
 
   return null;
+}
+
+function resolveSinaSuggestionName(fields: string[]) {
+  const code = fields[2]?.trim();
+  const marketCode = fields[3]?.trim();
+  const codeLikeNames = new Set(
+    [code, marketCode, code ? `${marketCode?.slice(0, 2) ?? ""}${code}` : undefined]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => value.toLowerCase()),
+  );
+
+  return (
+    [fields[4], fields[6], fields[0]]
+      .filter((field): field is string => Boolean(field))
+      .map((field) => field.trim())
+      .find((field) => field && !codeLikeNames.has(field.toLowerCase()) && !/^[a-z]{0,3}\d{5,6}$/i.test(field)) ??
+    fields[0]?.trim()
+  );
 }
 
 function mergeSecurities(...groups: Security[][]) {

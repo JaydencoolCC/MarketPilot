@@ -6,6 +6,7 @@ import { addFundItem, listFundRows, refreshFunds } from "@/lib/db/store";
 const addFundSchema = z.object({
   symbol: z.string().min(1),
   type: z.enum(["mutual_fund", "etf"]).optional(),
+  name: z.string().min(1).optional(),
 });
 
 export async function GET() {

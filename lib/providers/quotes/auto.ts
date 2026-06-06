@@ -1,5 +1,6 @@
 import type { Market, Quote, Security } from "@/lib/domain/types";
 import { searchKnownSecurities, securityFromSymbol } from "@/lib/domain/symbols";
+import { marketDataFetch } from "@/lib/providers/market-data-network";
 import type { QuoteProvider } from "@/lib/providers/quotes/types";
 import { SinaQuoteProvider } from "@/lib/providers/quotes/sina";
 import { YahooQuoteProvider } from "@/lib/providers/quotes/yahoo";
@@ -29,7 +30,7 @@ export class AutoQuoteProvider implements QuoteProvider {
   }
 
   private async getQuote(symbol: string) {
-    const providers = [this.yahoo, this.sina];
+    const providers = this.providersFor(symbol);
     const errors: string[] = [];
 
     for (const provider of providers) {
@@ -44,14 +45,85 @@ export class AutoQuoteProvider implements QuoteProvider {
 
     return [errorQuote(symbol, errors)];
   }
+
+  private providersFor(symbol: string): QuoteProvider[] {
+    const market = securityFromSymbol(symbol).market;
+    if (market === "JP") return [this.yahoo, this.sina];
+    return [this.sina, this.yahoo];
+  }
 }
 
 async function enrichMarketStatuses(quotes: Quote[]) {
   const statusBySymbol = await fetchEastmoneyMarketStatuses(quotes.map((quote) => quote.symbol));
   return quotes.map((quote) => {
     const marketStatus = statusBySymbol.get(quote.symbol);
-    return marketStatus ? { ...quote, marketStatus } : quote;
+    if (marketStatus) return { ...quote, marketStatus };
+    if (quote.marketStatus === "unknown") {
+      const inferredStatus = inferMarketStatus(quote.symbol);
+      if (inferredStatus !== "unknown") return { ...quote, marketStatus: inferredStatus };
+    }
+    return quote;
   });
+}
+
+function inferMarketStatus(symbol: string): Quote["marketStatus"] {
+  const market = securityFromSymbol(symbol).market;
+  if (market === "US") return inferUnitedStatesMarketStatus();
+  if (market === "JP") return inferJapanMarketStatus();
+  return "unknown";
+}
+
+function inferUnitedStatesMarketStatus(now = new Date()): Quote["marketStatus"] {
+  const minuteOfDay = zonedWeekdayMinute(now, "America/New_York");
+  if (!minuteOfDay) return "unknown";
+  if (minuteOfDay.weekday === "Sat" || minuteOfDay.weekday === "Sun") return "closed";
+
+  const preMarketOpen = 4 * 60;
+  const regularOpen = 9 * 60 + 30;
+  const regularClose = 16 * 60;
+  const afterHoursClose = 20 * 60;
+
+  if (minuteOfDay.minute >= regularOpen && minuteOfDay.minute < regularClose) return "open";
+  if (minuteOfDay.minute >= preMarketOpen && minuteOfDay.minute < regularOpen) return "pre_market";
+  if (minuteOfDay.minute >= regularClose && minuteOfDay.minute < afterHoursClose) return "after_hours";
+  return "closed";
+}
+
+function inferJapanMarketStatus(now = new Date()): Quote["marketStatus"] {
+  const minuteOfDay = zonedWeekdayMinute(now, "Asia/Tokyo");
+  if (!minuteOfDay) return "unknown";
+  if (minuteOfDay.weekday === "Sat" || minuteOfDay.weekday === "Sun") return "closed";
+
+  const morningOpen = 9 * 60;
+  const morningClose = 11 * 60 + 30;
+  const afternoonOpen = 12 * 60 + 30;
+  const afternoonClose = 15 * 60 + 30;
+
+  if (
+    (minuteOfDay.minute >= morningOpen && minuteOfDay.minute < morningClose) ||
+    (minuteOfDay.minute >= afternoonOpen && minuteOfDay.minute < afternoonClose)
+  ) {
+    return "open";
+  }
+
+  return "closed";
+}
+
+function zonedWeekdayMinute(now: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const partByType = new Map(parts.map((part) => [part.type, part.value]));
+  const weekday = partByType.get("weekday");
+  if (!weekday) return null;
+
+  const hour = Number(partByType.get("hour") ?? 0) % 24;
+  const minute = Number(partByType.get("minute") ?? 0);
+  return { weekday, minute: hour * 60 + minute };
 }
 
 async function fetchEastmoneyMarketStatuses(symbols: string[]) {
@@ -64,7 +136,7 @@ async function fetchEastmoneyMarketStatuses(symbols: string[]) {
     url.searchParams.set("secids", secids.map((entry) => entry.secid).join(","));
     url.searchParams.set("fields", "f12,f13,f292");
 
-    const response = await fetch(url, {
+    const response = await marketDataFetch(url, {
       cache: "no-store",
       headers: {
         Accept: "application/json",
@@ -176,6 +248,7 @@ function scoreSearchResult(
   if (security.market === "US" && /^[A-Z]{1,5}$/.test(symbol)) score += 10;
   if (security.market === "HK" && /^\d{1,5}$/.test(symbol)) score += 8;
   if (security.market === "CN" && /^\d{6}$/.test(symbol)) score += 8;
+  if (security.market === "JP" && /^\d{4}$/.test(symbol)) score += 8;
 
   if (isDerivativeLike(security)) score -= 80;
   if (isSecondaryListingLike(security)) score -= 25;

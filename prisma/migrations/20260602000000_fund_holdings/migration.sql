@@ -1,0 +1,2 @@
+ALTER TABLE "FundWatchlistItem" ADD COLUMN IF NOT EXISTS "costPrice" DECIMAL(18, 6);
+ALTER TABLE "FundWatchlistItem" ADD COLUMN IF NOT EXISTS "shares" DECIMAL(18, 6);

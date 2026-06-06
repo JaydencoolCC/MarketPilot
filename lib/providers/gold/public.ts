@@ -1,5 +1,6 @@
 import { AppError } from "@/lib/domain/errors";
 import type { GoldHistory, GoldPoint, GoldRange, GoldScope } from "@/lib/domain/types";
+import { marketDataFetch } from "@/lib/providers/market-data-network";
 import type { GoldProvider } from "@/lib/providers/gold/types";
 
 type VangHistoryResponse = {
@@ -57,7 +58,7 @@ async function fetchVangGoldSeries(range: GoldRange): Promise<GoldPoint[]> {
   url.searchParams.set("type", "XAUUSD");
   url.searchParams.set("days", daysForRange(range));
 
-  const response = await fetch(url, {
+  const response = await marketDataFetch(url, {
     cache: "no-store",
     headers: {
       Accept: "application/json",
@@ -90,7 +91,7 @@ export function setGoldHistoryFetcherForTest(fetcher: ((range: GoldRange) => Pro
 }
 
 async function fetchUsdCnyRate() {
-  const response = await fetch("https://open.er-api.com/v6/latest/USD", {
+  const response = await marketDataFetch("https://open.er-api.com/v6/latest/USD", {
     cache: "no-store",
     headers: {
       Accept: "application/json",

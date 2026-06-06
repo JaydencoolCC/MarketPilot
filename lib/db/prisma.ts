@@ -57,7 +57,7 @@ export type WatchlistRecord = {
   id: string;
   symbol: string;
   normalizedSymbol: string;
-  market: "US" | "HK" | "CN";
+  market: "US" | "HK" | "CN" | "JP";
   name: string;
   currency: string;
   costPrice: unknown | null;
@@ -87,9 +87,11 @@ export type FundWatchlistRecord = {
   code: string;
   normalizedSymbol: string;
   type: string;
-  market: "US" | "HK" | "CN" | null;
+  market: "US" | "HK" | "CN" | "JP" | null;
   name: string;
   currency: string;
+  costPrice: unknown | null;
+  shares: unknown | null;
   createdAt: Date;
   updatedAt: Date;
 };

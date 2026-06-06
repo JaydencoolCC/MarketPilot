@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { EmailSettingsForm } from "@/components/settings/email-settings-form";
 import type {
   EmailDigestSetting,
+  MarketDataNetworkSetting,
   PublicIntegrationSetting,
 } from "@/lib/domain/types";
 import { cn } from "@/lib/utils/cn";
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils/cn";
 type SettingsCenterProps = {
   initialEmailSetting: EmailDigestSetting;
   initialIntegrations: PublicIntegrationSetting[];
+  initialMarketDataNetwork: MarketDataNetworkSetting;
 };
 
 const navItems = [
@@ -36,8 +38,13 @@ const navItems = [
   { href: "#security", label: "安全" },
 ];
 
-export function SettingsCenter({ initialEmailSetting, initialIntegrations }: SettingsCenterProps) {
+export function SettingsCenter({
+  initialEmailSetting,
+  initialIntegrations,
+  initialMarketDataNetwork,
+}: SettingsCenterProps) {
   const [integrations, setIntegrations] = useState(initialIntegrations);
+  const [marketDataNetwork, setMarketDataNetwork] = useState(initialMarketDataNetwork);
 
   function updateIntegration(next: PublicIntegrationSetting) {
     setIntegrations((current) => current.map((item) => (item.kind === next.kind ? next : item)));
@@ -104,6 +111,7 @@ export function SettingsCenter({ initialEmailSetting, initialIntegrations }: Set
         </section>
 
         <section id="market" className="grid gap-4 md:grid-cols-2">
+          <MarketDataNetworkCard setting={marketDataNetwork} onUpdate={setMarketDataNetwork} />
           {marketIntegrations.map((item) => (
             <MarketProviderCard key={item.kind} integration={item} onUpdate={updateIntegration} />
           ))}
@@ -127,6 +135,106 @@ export function SettingsCenter({ initialEmailSetting, initialIntegrations }: Set
         </section>
       </div>
     </div>
+  );
+}
+
+function MarketDataNetworkCard({
+  setting,
+  onUpdate,
+}: {
+  setting: MarketDataNetworkSetting;
+  onUpdate: (setting: MarketDataNetworkSetting) => void;
+}) {
+  const [proxyUrl, setProxyUrl] = useState(setting.proxyUrl ?? "");
+  const [message, setMessage] = useState(setting.proxyUrl ? "已保存代理地址。" : "未配置代理，金融数据请求会先直连。");
+  const [busy, setBusy] = useState(false);
+
+  async function saveProxy(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const response = await fetch("/api/settings/market-data-network", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proxyUrl }),
+      });
+      const payload = (await response.json()) as {
+        data?: MarketDataNetworkSetting;
+        error?: { message: string };
+      };
+      if (!response.ok || !payload.data) {
+        setMessage(payload.error?.message ?? "保存代理失败。");
+        return;
+      }
+      onUpdate(payload.data);
+      setProxyUrl(payload.data.proxyUrl ?? "");
+      setMessage(payload.data.proxyUrl ? "已保存。直连失败时会用代理重试行情与新闻请求。" : "已清除代理。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function testProxy() {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/settings/market-data-network", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proxyUrl }),
+      });
+      const payload = (await response.json()) as {
+        data?: MarketDataNetworkSetting;
+        result?: { message: string };
+        error?: { message: string };
+      };
+      if (payload.data) {
+        onUpdate(payload.data);
+        setProxyUrl(payload.data.proxyUrl ?? "");
+      }
+      setMessage(payload.result?.message ?? payload.error?.message ?? "代理检测完成。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-line bg-white p-5 shadow-soft md:col-span-2">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-ocean/10 text-ocean">
+          <Wifi className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-ink">行情与新闻代理</h2>
+              <p className="mt-1 text-sm leading-6 text-muted">
+                直连金融数据源失败时，会用这里的 HTTP 代理重试；不会影响 AI Chat 或邮件。
+              </p>
+            </div>
+            <Badge tone={setting.proxyUrl ? "green" : "amber"}>{setting.proxyUrl ? "已配置" : "未配置"}</Badge>
+          </div>
+          <form onSubmit={saveProxy} className="mt-4 grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
+            <label className="space-y-2 text-sm font-medium text-ink">
+              代理地址
+              <Input
+                value={proxyUrl}
+                onChange={(event) => setProxyUrl(event.target.value)}
+                placeholder="http://127.0.0.1:7897 或 7897"
+              />
+            </label>
+            <Button type="button" variant="secondary" onClick={testProxy} disabled={busy}>
+              <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
+              {busy ? "检测中" : "检测代理"}
+            </Button>
+            <Button type="submit" disabled={busy}>
+              <Save className="h-4 w-4" />
+              保存代理
+            </Button>
+          </form>
+          <p className="mt-3 text-sm text-muted">{message}</p>
+        </div>
+      </div>
+    </section>
   );
 }
 

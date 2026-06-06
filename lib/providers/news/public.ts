@@ -1,6 +1,7 @@
 import { AppError } from "@/lib/domain/errors";
 import type { Market, NewsArticle } from "@/lib/domain/types";
 import { marketFromSymbol, normalizeSymbol } from "@/lib/domain/symbols";
+import { marketDataFetch } from "@/lib/providers/market-data-network";
 import type { NewsProvider, NewsQuery } from "@/lib/providers/news/types";
 
 type RssItem = {
@@ -88,7 +89,7 @@ async function fetchEastmoneySymbolNews(symbol: string): Promise<RawNewsItem[]> 
 
   const url = new URL("https://emweb.securities.eastmoney.com/PC_HSF10/NewsBulletin/PageAjax");
   url.searchParams.set("code", toEastmoneyCode(symbol));
-  const response = await fetch(url, {
+  const response = await marketDataFetch(url, {
     cache: "no-store",
     headers: {
       Accept: "application/json,text/plain,*/*",
@@ -118,7 +119,7 @@ async function fetchEastmoneyMarketNews(): Promise<RawNewsItem[]> {
   url.searchParams.set("page_size", "20");
   url.searchParams.set("req_trace", Date.now().toString());
 
-  const response = await fetch(url, {
+  const response = await marketDataFetch(url, {
     cache: "no-store",
     headers: {
       Accept: "application/json,text/plain,*/*",
@@ -156,7 +157,7 @@ async function fetchYahooSymbolNews(symbol: string) {
   url.searchParams.set("region", "US");
   url.searchParams.set("lang", "en-US");
 
-  const response = await fetch(url, {
+  const response = await marketDataFetch(url, {
     cache: "no-store",
     headers: { "User-Agent": "trade-workbench/0.1" },
   });

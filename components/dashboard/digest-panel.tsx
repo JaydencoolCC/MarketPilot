@@ -1,28 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FileText, Mail, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useLocale } from "@/components/i18n/locale-provider";
 import type { DigestPreview } from "@/lib/domain/types";
+import { dictionary } from "@/lib/i18n";
 import { relativeTime } from "@/lib/utils/format";
 
 export function DigestPanel() {
+  const { t } = useLocale();
   const [digest, setDigest] = useState<DigestPreview | null>(null);
-  const [status, setStatus] = useState("我会在发送前整理重点新闻和自选股变化。");
+  const [status, setStatus] = useState<string>(t.digest.initialStatus);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setStatus((current) =>
+      current === dictionary.zh.digest.initialStatus || current === dictionary.en.digest.initialStatus
+        ? t.digest.initialStatus
+        : current,
+    );
+  }, [t.digest.initialStatus]);
 
   async function previewDigest() {
     setLoading(true);
-    setStatus("正在整理今日重点。");
+    setStatus(t.digest.loadingPreview);
     try {
       const response = await fetch("/api/digests/preview", { method: "POST" });
       const payload = (await response.json()) as { data?: DigestPreview; error?: { message: string } };
       if (!response.ok || !payload.data) {
-        setStatus(payload.error?.message ?? "摘要生成失败，可以稍后重试。");
+        setStatus(payload.error?.message ?? t.digest.previewFailed);
         return;
       }
       setDigest(payload.data);
-      setStatus("摘要已生成，真实邮件 provider 接入后可按时发送。");
+      setStatus(t.digest.previewReady);
     } finally {
       setLoading(false);
     }
@@ -30,7 +41,7 @@ export function DigestPanel() {
 
   async function sendTest() {
     setLoading(true);
-    setStatus("正在模拟发送测试邮件。");
+    setStatus(t.digest.sendingTest);
     try {
       const response = await fetch("/api/digests/send-test", { method: "POST" });
       const payload = (await response.json()) as {
@@ -39,11 +50,11 @@ export function DigestPanel() {
         error?: { message: string };
       };
       if (!response.ok) {
-        setStatus(payload.error?.message ?? "测试邮件发送失败。");
+        setStatus(payload.error?.message ?? t.digest.testFailed);
         return;
       }
       setDigest(payload.digest ?? null);
-      setStatus(payload.data?.message ?? "测试邮件已模拟发送。");
+      setStatus(payload.data?.message ?? t.digest.testSent);
     } finally {
       setLoading(false);
     }
@@ -51,7 +62,7 @@ export function DigestPanel() {
 
   async function sendDaily() {
     setLoading(true);
-    setStatus("正在发送今日摘要。");
+    setStatus(t.digest.sendingDaily);
     try {
       const response = await fetch("/api/digests/send", { method: "POST" });
       const payload = (await response.json()) as {
@@ -60,11 +71,11 @@ export function DigestPanel() {
         error?: { message: string };
       };
       if (!response.ok) {
-        setStatus(payload.error?.message ?? "今日摘要发送失败。");
+        setStatus(payload.error?.message ?? t.digest.dailyFailed);
         return;
       }
       setDigest(payload.digest ?? null);
-      setStatus(payload.data?.message ?? "今日摘要已处理。");
+      setStatus(payload.data?.message ?? t.digest.dailyDone);
     } finally {
       setLoading(false);
     }
@@ -76,9 +87,9 @@ export function DigestPanel() {
         <div>
           <div className="flex items-center gap-2 text-sm font-medium text-moss">
             <Sparkles className="h-4 w-4" />
-            今日重点
+            {t.digest.eyebrow}
           </div>
-          <h2 className="mt-2 text-lg font-semibold text-ink">每日摘要预览</h2>
+          <h2 className="mt-2 text-lg font-semibold text-ink">{t.digest.title}</h2>
           <p className="mt-1 text-sm leading-6 text-muted">{status}</p>
         </div>
       </div>
@@ -86,15 +97,15 @@ export function DigestPanel() {
       <div className="mt-4 flex flex-wrap gap-2">
         <Button size="sm" onClick={previewDigest} disabled={loading}>
           <FileText className="h-4 w-4" />
-          预览摘要
+          {t.digest.preview}
         </Button>
         <Button size="sm" variant="secondary" onClick={sendTest} disabled={loading}>
           <Mail className="h-4 w-4" />
-          测试发送
+          {t.digest.testSend}
         </Button>
         <Button size="sm" variant="secondary" onClick={sendDaily} disabled={loading}>
           <Send className="h-4 w-4" />
-          发送今日
+          {t.digest.sendToday}
         </Button>
       </div>
 
@@ -103,7 +114,7 @@ export function DigestPanel() {
           <>
             <div>
               <h3 className="text-sm font-semibold text-ink">{digest.title}</h3>
-              <p className="mt-1 text-xs text-muted">生成于 {relativeTime(digest.generatedAt)}</p>
+              <p className="mt-1 text-xs text-muted">{t.digest.generatedAt} {relativeTime(digest.generatedAt)}</p>
             </div>
             {digest.sections.map((section) => (
               <div key={section.heading} className="rounded-md border border-line bg-surface/60 p-3">
@@ -114,7 +125,7 @@ export function DigestPanel() {
           </>
         ) : (
           <div className="rounded-md border border-dashed border-line bg-surface/50 p-4 text-sm leading-6 text-muted">
-            过去 24 小时的重点会在这里预览。没有新闻时，我会直接告诉你，而不是编造摘要。
+            {t.digest.empty}
           </div>
         )}
       </div>

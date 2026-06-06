@@ -61,6 +61,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
   async *streamChat(input: ChatRequest) {
     const response = await fetch(modelEndpoint(this.config.baseUrl), {
       method: "POST",
+      signal: input.signal,
       headers: {
         Authorization: `Bearer ${this.config.apiKey}`,
         "Content-Type": "application/json",

@@ -4,11 +4,13 @@ import type {
   EmailDigestSetting,
   IntegrationKind,
   IntegrationSetting,
+  MarketDataNetworkSetting,
 } from "@/lib/domain/types";
 
 type LocalSettingsFile = {
   emailSetting?: EmailDigestSetting;
   integrations?: Partial<Record<IntegrationKind, IntegrationSetting>>;
+  marketDataNetwork?: MarketDataNetworkSetting;
 };
 
 const SETTINGS_PATH = join(process.cwd(), ".local", "settings.json");
@@ -65,6 +67,17 @@ export function saveLocalIntegrationSetting(setting: IntegrationSetting) {
     ...settings.integrations,
     [setting.kind]: setting,
   };
+  writeSettingsFile(settings);
+  return setting;
+}
+
+export function getLocalMarketDataNetworkSetting() {
+  return readSettingsFile().marketDataNetwork ?? {};
+}
+
+export function saveLocalMarketDataNetworkSetting(setting: MarketDataNetworkSetting) {
+  const settings = readSettingsFile();
+  settings.marketDataNetwork = setting;
   writeSettingsFile(settings);
   return setting;
 }

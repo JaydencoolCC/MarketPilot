@@ -66,7 +66,7 @@ function createInitialStore(): StoreState {
       recipientEmail: "",
       sendTime: "08:30",
       timezone: process.env.APP_TIMEZONE || "Asia/Shanghai",
-      markets: ["US", "HK", "CN"],
+      markets: ["US", "HK", "CN", "JP"],
       watchlistOnly: false,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -83,16 +83,17 @@ function getStore() {
 
 function watchlistItemFromRecord(record: WatchlistRecord): WatchlistItem {
   const security = securityFromSymbol(record.normalizedSymbol);
-  const name =
-    !record.name || record.name === record.normalizedSymbol ? security.name : record.name;
+  const name = shouldReplaceWatchlistName(record.name, record.normalizedSymbol, record.symbol)
+    ? security.name
+    : record.name;
 
   return {
     id: record.id,
-    symbol: record.symbol,
-    normalizedSymbol: record.normalizedSymbol,
-    market: record.market,
+    symbol: security.symbol,
+    normalizedSymbol: security.normalizedSymbol,
+    market: security.market,
     name,
-    currency: record.currency,
+    currency: security.currency,
     costPrice: record.costPrice === null ? undefined : Number(record.costPrice),
     shares: record.shares === null ? undefined : Number(record.shares),
     createdAt: record.createdAt.toISOString(),
@@ -115,6 +116,15 @@ async function resolveSecurityForWatchlist(input: { symbol: string; market?: Mar
   }
 }
 
+function shouldReplaceWatchlistName(name: string | undefined, normalizedSymbol: string, symbol: string) {
+  if (!name || name === normalizedSymbol || name === symbol) return true;
+  try {
+    return securityFromSymbol(name).normalizedSymbol === normalizedSymbol;
+  } catch {
+    return false;
+  }
+}
+
 function quoteFromSnapshot(snapshot: QuoteSnapshotRecord): Quote {
   return {
     symbol: snapshot.symbol,
@@ -132,6 +142,38 @@ function quoteFromSnapshot(snapshot: QuoteSnapshotRecord): Quote {
   };
 }
 
+function displayQuoteAfterFailure(quote: Quote): Quote {
+  if (quote.status !== "error" || quote.price <= 0) return quote;
+  return {
+    ...quote,
+    status: "stale",
+    errorCode: undefined,
+    errorMessage: undefined,
+  };
+}
+
+function quotesToPersist(quotes: Quote[]) {
+  return quotes.filter((quote) => quote.status === "ok" || (quote.status === "error" && quote.price <= 0));
+}
+
+function hasFailedQuotes(quotes: Quote[]) {
+  return quotes.some((quote) => quote.status === "error");
+}
+
+function replaceFailedQuotesWithLatest(quotes: Quote[], latestQuotes: Record<string, Quote>) {
+  return quotes.map((quote) => {
+    if (quote.status !== "error") return quote;
+    const security = securityFromSymbol(quote.symbol);
+    const latest = latestQuotes[security.normalizedSymbol] ?? latestQuotes[quote.symbol];
+    if (!latest) return quote;
+    return {
+      ...latest,
+      status: "stale",
+      fetchedAt: quote.fetchedAt ?? latest.fetchedAt,
+    } satisfies Quote;
+  });
+}
+
 function fundItemFromRecord(record: FundWatchlistRecord): FundItem {
   return {
     id: record.id,
@@ -141,6 +183,8 @@ function fundItemFromRecord(record: FundWatchlistRecord): FundItem {
     market: record.market ?? undefined,
     name: record.name,
     currency: record.currency,
+    costPrice: record.costPrice === null ? undefined : Number(record.costPrice),
+    shares: record.shares === null ? undefined : Number(record.shares),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   };
@@ -185,7 +229,9 @@ export async function listWatchlistRows(): Promise<WatchlistRow[]> {
     }
 
     return records.map((record) => {
-      const quote = record.quoteSnapshots[0] ? quoteFromSnapshot(record.quoteSnapshots[0]) : null;
+      const quote = record.quoteSnapshots[0]
+        ? displayQuoteAfterFailure(quoteFromSnapshot(record.quoteSnapshots[0]))
+        : null;
       return {
         ...watchlistItemFromRecord(record),
         quote,
@@ -207,7 +253,7 @@ export async function listWatchlistRows(): Promise<WatchlistRow[]> {
   }
 
   return store.watchlist.map((item) => {
-    const quote = store.quotes[item.normalizedSymbol] ?? null;
+    const quote = store.quotes[item.normalizedSymbol] ? displayQuoteAfterFailure(store.quotes[item.normalizedSymbol]) : null;
     return {
       ...item,
       quote,
@@ -234,7 +280,7 @@ export async function addWatchlistItem(input: { symbol: string; market?: Market 
     });
 
     if (existing) {
-      if (!existing.name || existing.name === existing.normalizedSymbol) {
+      if (shouldReplaceWatchlistName(existing.name, existing.normalizedSymbol, existing.symbol)) {
         const updated = await db.watchlistItem.update({
           where: { id: existing.id },
           data: { name: security.name },
@@ -264,7 +310,7 @@ export async function addWatchlistItem(input: { symbol: string; market?: Market 
   );
 
   if (exists) {
-    if (!exists.name || exists.name === exists.normalizedSymbol) {
+    if (shouldReplaceWatchlistName(exists.name, exists.normalizedSymbol, exists.symbol)) {
       exists.name = security.name;
       exists.updatedAt = now();
     }
@@ -378,20 +424,32 @@ export async function refreshQuotes(symbols?: string[]) {
     let quotes: Quote[];
     try {
       quotes = await provider.getQuotes(targetSymbols);
+      if (hasFailedQuotes(quotes)) {
+        const latestQuotes = await latestQuotesFromDatabase(db, targetSymbols);
+        quotes = replaceFailedQuotesWithLatest(quotes, latestQuotes);
+      }
     } catch (error) {
       const latestQuotes = await latestQuotesFromDatabase(db, targetSymbols);
-      quotes = buildProviderFailureQuotes(targetSymbols, latestQuotes, error);
+      quotes = buildProviderFailureQuotes(targetSymbols, latestQuotes, error).map(displayQuoteAfterFailure);
     }
 
     const watchlistItems = (await db.watchlistItem.findMany({
       where: { normalizedSymbol: { in: targetSymbols } },
       select: { id: true, normalizedSymbol: true },
     })) as Array<{ id: string; normalizedSymbol: string }>;
-    const itemBySymbol = new Map(watchlistItems.map((item) => [item.normalizedSymbol, item.id]));
+    const itemBySymbol = new Map(
+      watchlistItems.flatMap((item) => {
+        const canonicalSymbol = securityFromSymbol(item.normalizedSymbol).normalizedSymbol;
+        return [
+          [item.normalizedSymbol, item.id],
+          [canonicalSymbol, item.id],
+        ] as Array<[string, string]>;
+      }),
+    );
     const snapshotIdBySymbol = await latestQuoteSnapshotIdsFromDatabase(db, targetSymbols);
 
     await db.$transaction(
-      quotes.flatMap((quote) => {
+      quotesToPersist(quotes).flatMap((quote) => {
         const watchlistItemId = itemBySymbol.get(quote.symbol);
         if (!watchlistItemId) {
           return [];
@@ -436,11 +494,14 @@ export async function refreshQuotes(symbols?: string[]) {
   let quotes: Quote[];
   try {
     quotes = await provider.getQuotes(targetSymbols);
+    if (hasFailedQuotes(quotes)) {
+      quotes = replaceFailedQuotesWithLatest(quotes, store.quotes);
+    }
   } catch (error) {
-    quotes = buildProviderFailureQuotes(targetSymbols, store.quotes, error);
+    quotes = buildProviderFailureQuotes(targetSymbols, store.quotes, error).map(displayQuoteAfterFailure);
   }
 
-  for (const quote of quotes) {
+  for (const quote of quotesToPersist(quotes)) {
     store.quotes[quote.symbol] = quote;
   }
   return quotes;
@@ -454,14 +515,21 @@ export async function getLiveQuotes(symbols: string[]) {
   const provider = getQuoteProvider();
   try {
     const fetchedAt = new Date().toISOString();
-    return (await provider.getQuotes(symbols)).map((quote) => ({ ...quote, fetchedAt }));
+    let quotes: Quote[] = (await provider.getQuotes(symbols)).map((quote) => ({ ...quote, fetchedAt }));
+    if (hasFailedQuotes(quotes)) {
+      const latestQuotes = shouldUseDatabase()
+        ? await latestQuotesFromDatabase(await getPrisma(), symbols)
+        : getStore().quotes;
+      quotes = replaceFailedQuotesWithLatest(quotes, latestQuotes);
+    }
+    return quotes;
   } catch (error) {
     if (shouldUseDatabase()) {
       const db = await getPrisma();
       const latestQuotes = await latestQuotesFromDatabase(db, symbols);
-      return buildProviderFailureQuotes(symbols, latestQuotes, error);
+      return buildProviderFailureQuotes(symbols, latestQuotes, error).map(displayQuoteAfterFailure);
     }
-    return buildProviderFailureQuotes(symbols, getStore().quotes, error);
+    return buildProviderFailureQuotes(symbols, getStore().quotes, error).map(displayQuoteAfterFailure);
   }
 }
 
@@ -601,15 +669,24 @@ export async function listFundRows(): Promise<FundRow[]> {
   });
 }
 
-export async function addFundItem(input: { symbol: string; type?: FundItem["type"] }) {
-  const fund = fundFromSymbol(input.symbol, input.type);
+export async function addFundItem(input: { symbol: string; type?: FundItem["type"]; name?: string }) {
+  const fund = await resolveFundForWatchlist(input);
   if (shouldUseDatabase()) {
     const db = await getPrisma();
     const existing = await db.fundWatchlistItem.findUnique({
       where: { normalizedSymbol: fund.normalizedSymbol },
     });
 
-    if (existing) return fundItemFromRecord(existing);
+    if (existing) {
+      if (existing.name === existing.code || existing.name === existing.normalizedSymbol) {
+        const updated = await db.fundWatchlistItem.update({
+          where: { id: existing.id },
+          data: { name: fund.name },
+        });
+        return fundItemFromRecord(updated);
+      }
+      return fundItemFromRecord(existing);
+    }
 
     const created = await db.fundWatchlistItem.create({
       data: {
@@ -627,7 +704,13 @@ export async function addFundItem(input: { symbol: string; type?: FundItem["type
 
   const store = getStore();
   const existing = store.funds.find((item) => item.normalizedSymbol === fund.normalizedSymbol);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.name === existing.code || existing.name === existing.normalizedSymbol) {
+      existing.name = fund.name;
+      existing.updatedAt = now();
+    }
+    return existing;
+  }
 
   const timestamp = now();
   const item: FundItem = {
@@ -638,11 +721,73 @@ export async function addFundItem(input: { symbol: string; type?: FundItem["type
     market: fund.market,
     name: fund.name,
     currency: fund.currency,
+    costPrice: undefined,
+    shares: undefined,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
   store.funds.unshift(item);
   await refreshFunds([item.normalizedSymbol]);
+  return item;
+}
+
+async function resolveFundForWatchlist(input: { symbol: string; type?: FundItem["type"]; name?: string }) {
+  const fallback = fundFromSymbol(input.symbol, input.type);
+  if (input.name?.trim()) {
+    return { ...fallback, name: input.name.trim() };
+  }
+
+  try {
+    const results = await searchFunds(fallback.code);
+    return results.find((item) => item.normalizedSymbol === fallback.normalizedSymbol) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function updateFundHolding(
+  id: string,
+  input: { costPrice?: number | null; shares?: number | null },
+) {
+  const clearing = input.costPrice === null && input.shares === null;
+  const costPrice = input.costPrice;
+  const shares = input.shares;
+  const holding =
+    typeof costPrice === "number" && typeof shares === "number" ? { costPrice, shares } : null;
+
+  if (!clearing && !holding) {
+    throw new AppError("VALIDATION_ERROR", "请同时填写成本价和份额。", 400);
+  }
+
+  if (holding && (holding.costPrice <= 0 || holding.shares <= 0)) {
+    throw new AppError("VALIDATION_ERROR", "成本价和份额必须大于 0。", 400);
+  }
+
+  if (shouldUseDatabase()) {
+    const db = await getPrisma();
+    const item = await db.fundWatchlistItem.findUnique({ where: { id } });
+    if (!item) {
+      throw new AppError("NOT_FOUND", "没有找到这只基金。", 404);
+    }
+
+    const updated = await db.fundWatchlistItem.update({
+      where: { id },
+      data: clearing
+        ? { costPrice: null, shares: null }
+        : { costPrice: holding!.costPrice.toString(), shares: holding!.shares.toString() },
+    });
+    return fundItemFromRecord(updated);
+  }
+
+  const store = getStore();
+  const item = store.funds.find((entry) => entry.id === id);
+  if (!item) {
+    throw new AppError("NOT_FOUND", "没有找到这只基金。", 404);
+  }
+
+  item.costPrice = clearing ? undefined : holding!.costPrice;
+  item.shares = clearing ? undefined : holding!.shares;
+  item.updatedAt = now();
   return item;
 }
 

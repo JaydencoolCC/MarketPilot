@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import iconv from "iconv-lite";
 import { addFundItem, deleteFundItem, listFundRows, resetStoreForTests, searchFunds } from "@/lib/db/store";
 import { fundFromSymbol, fundTypeFromSymbol, normalizeFundSymbol } from "@/lib/domain/funds";
 import { PublicFundProvider } from "@/lib/providers/funds/public";
@@ -157,6 +158,54 @@ describe("PublicFundProvider", () => {
     ]);
     expect(results.map((item) => item.normalizedSymbol)).not.toContain("161128.SZ");
   });
+
+  it("falls back to Eastmoney fund code list for mutual fund search", async () => {
+    global.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.includes("FundSearchAPI")) {
+        return Response.json({ Datas: [] });
+      }
+      if (url.includes("fundcode_search.js")) {
+        return new Response('var r = [["202105","NFGHHBZA/B","南方广利回报债券A/B","债券型","NFGH"]];');
+      }
+      return new Response('var suggestvalue="";');
+    }) as typeof fetch;
+
+    const results = await new PublicFundProvider().searchFunds("南方广利");
+
+    expect(results[0]).toMatchObject({
+      code: "202105",
+      normalizedSymbol: "202105.FUND",
+      type: "mutual_fund",
+      name: "南方广利回报债券A/B",
+    });
+  });
+
+  it("adds Sina listed fund suggestions for ETF search", async () => {
+    global.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.includes("FundSearchAPI")) {
+        return Response.json({ Datas: [] });
+      }
+      if (url.includes("fundcode_search.js")) {
+        return new Response("var r = [];");
+      }
+      return new Response(new Uint8Array(iconv.encode(
+        'var suggestvalue="标普500ETF,11,513500,sh513500,标普500ETF,biaopu500ETF;贵州茅台,11,600519,sh600519,贵州茅台,guizhoumaotai";',
+        "gb18030",
+      )));
+    }) as typeof fetch;
+
+    const results = await new PublicFundProvider().searchFunds("标普500");
+
+    expect(results).toContainEqual(expect.objectContaining({
+      code: "513500",
+      normalizedSymbol: "513500.SH",
+      type: "etf",
+      name: "标普500ETF",
+    }));
+    expect(results.map((item) => item.normalizedSymbol)).not.toContain("600519.SH");
+  });
 });
 
 describe("fund store", () => {
@@ -179,6 +228,33 @@ describe("fund store", () => {
 
     await deleteFundItem(item.id);
     await expect(listFundRows()).resolves.toHaveLength(0);
+  });
+
+  it("uses provider search names when adding unknown mutual funds", async () => {
+    global.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.includes("FundSearchAPI")) {
+        return Response.json({
+          Datas: [
+            {
+              CODE: "202105",
+              NAME: "南方广利回报债券A/B",
+              FundBaseInfo: { FCODE: "202105", SHORTNAME: "南方广利回报债券A/B" },
+            },
+          ],
+        });
+      }
+      return new Response(
+        'jsonpgz({"fundcode":"202105","name":"南方广利回报债券A/B","jzrq":"2026-05-22","dwjz":"2.2000","gsz":"2.2100","gszzl":"0.47","gztime":"2026-05-22 15:00"});',
+      );
+    }) as typeof fetch;
+
+    const item = await addFundItem({ symbol: "202105" });
+
+    expect(item).toMatchObject({
+      normalizedSymbol: "202105.FUND",
+      name: "南方广利回报债券A/B",
+    });
   });
 
   it("adds ETF funds using the quote provider", async () => {

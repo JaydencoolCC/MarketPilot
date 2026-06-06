@@ -1,6 +1,7 @@
 import { AppError } from "@/lib/domain/errors";
 import type { Market, Quote, Security } from "@/lib/domain/types";
 import { normalizeSymbol, searchKnownSecurities, securityFromSymbol } from "@/lib/domain/symbols";
+import { marketDataFetch } from "@/lib/providers/market-data-network";
 import type { QuoteProvider } from "@/lib/providers/quotes/types";
 
 type YahooChartResponse = {
@@ -39,7 +40,7 @@ export class YahooQuoteProvider implements QuoteProvider {
     url.searchParams.set("range", "1d");
     url.searchParams.set("interval", "1m");
 
-    const response = await fetch(url, {
+    const response = await marketDataFetch(url, {
       cache: "no-store",
       headers: {
         Accept: "application/json",

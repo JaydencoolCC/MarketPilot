@@ -38,6 +38,7 @@ export function cnMarketName(market: string) {
   if (market === "US") return "美股";
   if (market === "HK") return "港股";
   if (market === "CN") return "A股";
+  if (market === "JP") return "日股";
   return market;
 }
 

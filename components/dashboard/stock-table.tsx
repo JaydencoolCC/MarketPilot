@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import type { Market, NewsArticle, Quote, Security, WatchlistRow } from "@/lib/domain/types";
-import { xueqiuStockUrl } from "@/lib/domain/xueqiu";
+import { stockDetailUrl } from "@/lib/domain/xueqiu";
 import {
   cnMarketName,
   formatClockTime,
@@ -33,7 +33,7 @@ function marketStatusLabel(status?: Quote["marketStatus"]) {
   if (status === "closed") return "已休市";
   if (status === "pre_market") return "盘前";
   if (status === "after_hours") return "盘后";
-  return "数据源未返回";
+  return "状态未知";
 }
 
 function marketStatusTone(status?: Quote["marketStatus"]) {
@@ -77,15 +77,16 @@ export function StockTable({ initialRows }: StockTableProps) {
   const mergeQuotes = useCallback((quotes: Quote[]) => {
     const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
     setRows((current) =>
-      current.map((row) => {
-        const quote = quoteBySymbol.get(row.normalizedSymbol);
+      current.map((row, index) => {
+        const quote = quoteBySymbol.get(row.normalizedSymbol) ?? quotes[index];
         if (!quote) return row;
         return { ...row, quote, dataStatus: quote.status };
       }),
     );
     setSelectedRow((current) => {
       if (!current) return null;
-      const quote = quoteBySymbol.get(current.normalizedSymbol);
+      const currentIndex = rowsRef.current.findIndex((row) => row.id === current.id);
+      const quote = quoteBySymbol.get(current.normalizedSymbol) ?? quotes[currentIndex];
       if (!quote) return current;
       return { ...current, quote, dataStatus: quote.status };
     });
@@ -141,7 +142,10 @@ export function StockTable({ initialRows }: StockTableProps) {
       const response = await fetch("/api/watchlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol }),
+        body: JSON.stringify({
+          symbol,
+          market: selectedSecurity ? undefined : filter === "ALL" ? undefined : filter,
+        }),
       });
       const payload = (await response.json()) as {
         data?: WatchlistRow;
@@ -162,17 +166,12 @@ export function StockTable({ initialRows }: StockTableProps) {
     }
   }
 
-  async function searchSecurities(value: string) {
-    setQuery(value);
-    setSelectedSecurity(null);
-    if (!value.trim()) {
-      setSuggestions([]);
-      return;
-    }
-
+  async function fetchSecuritySuggestions(value: string, marketFilter: Market | "ALL") {
     setSearching(true);
     try {
-      const response = await fetch(`/api/securities/search?q=${encodeURIComponent(value)}`, {
+      const params = new URLSearchParams({ q: value });
+      if (marketFilter !== "ALL") params.set("market", marketFilter);
+      const response = await fetch(`/api/securities/search?${params.toString()}`, {
         cache: "no-store",
       });
       const payload = (await response.json()) as { data?: Security[]; error?: { message: string } };
@@ -186,6 +185,26 @@ export function StockTable({ initialRows }: StockTableProps) {
       }
     } finally {
       setSearching(false);
+    }
+  }
+
+  async function searchSecurities(value: string) {
+    setQuery(value);
+    setSelectedSecurity(null);
+    if (!value.trim()) {
+      setSuggestions([]);
+      return;
+    }
+
+    await fetchSecuritySuggestions(value, filter);
+  }
+
+  function changeFilter(nextFilter: Market | "ALL") {
+    setFilter(nextFilter);
+    if (query.trim()) {
+      setSuggestions([]);
+      setSelectedSecurity(null);
+      void fetchSecuritySuggestions(query, nextFilter);
     }
   }
 
@@ -214,8 +233,8 @@ export function StockTable({ initialRows }: StockTableProps) {
   }
 
   return (
-    <section className="relative rounded-lg border border-line bg-white/85 shadow-soft">
-      <div className="flex flex-col gap-4 border-b border-line p-4 md:flex-row md:items-center md:justify-between">
+    <section className="relative flex max-h-[calc(100vh-8.5rem)] min-h-[520px] flex-col overflow-hidden rounded-lg border border-line bg-white/85 shadow-soft">
+      <div className="shrink-0 flex flex-col gap-4 border-b border-line p-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-ink">自选股</h2>
           <p className="mt-1 text-sm text-muted">{message}</p>
@@ -224,12 +243,12 @@ export function StockTable({ initialRows }: StockTableProps) {
           <span className="mr-1 text-sm text-muted">
             更新时间：{latestFetchedAt ? formatClockTime(latestFetchedAt) : "-"}
           </span>
-          {(["ALL", "US", "HK", "CN"] as const).map((item) => (
+          {(["ALL", "US", "HK", "CN", "JP"] as const).map((item) => (
             <Button
               key={item}
               variant={filter === item ? "primary" : "secondary"}
               size="sm"
-              onClick={() => setFilter(item)}
+              onClick={() => changeFilter(item)}
             >
               {item === "ALL" ? "全部" : cnMarketName(item)}
             </Button>
@@ -240,24 +259,24 @@ export function StockTable({ initialRows }: StockTableProps) {
         </div>
       </div>
 
-      <form onSubmit={addStock} className="grid gap-3 border-b border-line p-4 md:grid-cols-[1fr_auto]">
+      <form onSubmit={addStock} className="shrink-0 grid gap-3 border-b border-line p-4 md:grid-cols-[1fr_auto]">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted" />
           <Input
             value={query}
             onChange={(event) => void searchSecurities(event.target.value)}
-            placeholder="搜索股票代码或公司名，例如 AAPL、腾讯、中国电信"
+            placeholder="搜索股票代码或公司名，例如 AAPL、腾讯、中国电信、7203.T"
             aria-label="搜索股票"
             className="pl-9"
             autoComplete="off"
           />
           {suggestions.length > 0 ? (
-            <div className="absolute left-0 right-0 top-12 z-20 overflow-hidden rounded-lg border border-line bg-white shadow-soft">
+            <div className="absolute left-0 right-0 top-12 z-20 max-h-96 overflow-y-auto rounded-lg border border-line bg-white shadow-soft">
               {suggestions.map((security) => (
                 <button
                   key={security.normalizedSymbol}
                   type="button"
-                  className="flex w-full items-center justify-between gap-3 border-b border-line/60 px-4 py-3 text-left last:border-b-0 hover:bg-moss/5"
+                  className="flex min-h-[68px] w-full items-center justify-between gap-3 border-b border-line/60 px-4 py-3 text-left last:border-b-0 hover:bg-moss/5"
                   onMouseDown={(event) => {
                     event.preventDefault();
                     chooseSecurity(security);
@@ -286,7 +305,7 @@ export function StockTable({ initialRows }: StockTableProps) {
       </form>
 
       {filteredRows.length === 0 ? (
-        <div className="p-10 text-center">
+        <div className="flex-1 p-10 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-moss/10 text-moss">
             <Plus className="h-5 w-5" />
           </div>
@@ -297,9 +316,9 @@ export function StockTable({ initialRows }: StockTableProps) {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="min-h-0 flex-1 overflow-auto">
           <table className="w-full min-w-[980px] border-collapse text-left text-sm">
-            <thead className="bg-surface/80 text-xs uppercase tracking-normal text-muted">
+            <thead className="sticky top-0 z-10 bg-surface text-xs uppercase tracking-normal text-muted shadow-[0_1px_0_0_rgba(219,211,199,0.9)]">
               <tr>
                 <th className="px-4 py-3 font-medium">名称</th>
                 <th className="px-4 py-3 font-medium">代码</th>
@@ -366,10 +385,10 @@ export function StockTable({ initialRows }: StockTableProps) {
                     <td className="px-4 py-4">
                       <div className="flex justify-end gap-1">
                         <a
-                          href={xueqiuStockUrl(row.normalizedSymbol)}
+                          href={stockDetailUrl(row.normalizedSymbol)}
                           target="_blank"
                           rel="noreferrer"
-                          aria-label="打开雪球"
+                          aria-label="查看详情"
                           className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted transition hover:bg-black/5 hover:text-ink"
                           onClick={(event) => event.stopPropagation()}
                         >

@@ -237,7 +237,7 @@ export function EmailSettingsForm({
       <div className="mt-5">
         <div className="text-sm font-medium text-ink">关注市场</div>
         <div className="mt-2 flex flex-wrap gap-2">
-          {(["US", "HK", "CN"] as const).map((market) => (
+          {(["US", "HK", "CN", "JP"] as const).map((market) => (
             <Button
               key={market}
               type="button"
@@ -245,7 +245,7 @@ export function EmailSettingsForm({
               size="sm"
               onClick={() => toggleMarket(market)}
             >
-              {market === "US" ? "美股" : market === "HK" ? "港股" : "A股"}
+              {market === "US" ? "美股" : market === "HK" ? "港股" : market === "CN" ? "A股" : "日股"}
             </Button>
           ))}
         </div>
