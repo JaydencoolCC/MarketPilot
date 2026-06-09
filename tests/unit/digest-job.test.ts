@@ -3,8 +3,9 @@ import {
   addWatchlistItem,
   resetStoreForTests,
   updateEmailSetting,
+  updateWatchlistHolding,
 } from "@/lib/db/store";
-import { isDailyDigestDue, runDailyDigestJob, sendDailyDigest } from "@/lib/jobs/digest";
+import { buildDigestPreview, isDailyDigestDue, runDailyDigestJob, sendDailyDigest } from "@/lib/jobs/digest";
 import { runDailyDigestSchedulerTick } from "@/lib/jobs/daily-digest-scheduler";
 
 const previousEnv = {
@@ -82,6 +83,19 @@ describe("daily digest job", () => {
       status: "sent",
       message: "每日摘要已在 mock provider 中模拟发送。",
     });
+  });
+
+  it("adds current holdings to the digest email content", async () => {
+    const item = await addWatchlistItem({ symbol: "AAPL.US" });
+    await updateWatchlistHolding(item.id, { costPrice: 200, shares: 2 });
+
+    const { digest } = await buildDigestPreview();
+    const holdings = digest.sections.find((section) => section.heading === "当前持仓");
+
+    expect(holdings?.body).toContain("Apple（AAPL.US）");
+    expect(holdings?.body).toContain("当前市值");
+    expect(holdings?.body).toContain("浮动盈亏");
+    expect(holdings?.body).toContain("+$53.68");
   });
 
   it("requires the daily email setting to be enabled", async () => {

@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import { AppError } from "@/lib/domain/errors";
 import type { DigestPreview } from "@/lib/domain/types";
 import type { DigestEmail, EmailProvider, EmailSendResult } from "@/lib/providers/email/types";
+import { parseDigestResponse } from "@/lib/providers/model/digest-parser";
 
 export class SmtpEmailProvider implements EmailProvider {
   constructor(private readonly config?: { smtpUrl: string; from: string }) {}
@@ -13,15 +14,16 @@ export class SmtpEmailProvider implements EmailProvider {
     if (!recipient) {
       throw new AppError("VALIDATION_ERROR", "请先配置收件邮箱。", 400);
     }
+    const digest = normalizeDigest(input.digest);
 
     const transporter = nodemailer.createTransport(smtpUrl);
-    const subject = input.test ? `[测试] ${input.digest.title}` : input.digest.title;
+    const subject = input.test ? `[测试] ${digest.title}` : digest.title;
     const result = await transporter.sendMail({
       from,
       to: recipient,
       subject,
-      text: digestToText(input.digest),
-      html: digestToHtml(input.digest),
+      text: digestToText(digest),
+      html: digestToHtml(digest),
     });
 
     return {
@@ -54,7 +56,23 @@ export class SmtpEmailProvider implements EmailProvider {
   }
 }
 
+export function normalizeDigest(digest: DigestPreview) {
+  const parsedFromBody = digest.sections
+    .map((section) => parseDigestResponse(section.body))
+    .find((parsed): parsed is DigestPreview => Boolean(parsed));
+
+  if (parsedFromBody) {
+    return {
+      ...parsedFromBody,
+      generatedAt: digest.generatedAt,
+    };
+  }
+
+  return digest;
+}
+
 export function digestToText(digest: DigestPreview) {
+  digest = normalizeDigest(digest);
   const lines = [digest.title, `生成时间：${new Date(digest.generatedAt).toLocaleString("zh-CN")}`];
 
   for (const section of digest.sections) {
@@ -68,6 +86,7 @@ export function digestToText(digest: DigestPreview) {
 }
 
 export function digestToHtml(digest: DigestPreview) {
+  digest = normalizeDigest(digest);
   const sections = digest.sections
     .map((section) => {
       const sources = (section.sources ?? [])

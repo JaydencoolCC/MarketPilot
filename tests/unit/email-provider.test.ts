@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { getEmailProvider } from "@/lib/providers/email";
-import { digestToHtml } from "@/lib/providers/email/smtp";
+import { digestToHtml, normalizeDigest } from "@/lib/providers/email/smtp";
 
 const previousEnv = {
   EMAIL_PROVIDER: process.env.EMAIL_PROVIDER,
@@ -70,5 +70,31 @@ describe("SMTP digest rendering", () => {
     expect(html).toContain("<strong>特斯拉</strong>");
     expect(html).not.toContain("## 每日财经摘要");
     expect(html).not.toContain("| --- | --- | --- |");
+  });
+
+  it("normalizes a JSON digest that was stored as a section body", () => {
+    const malformedBody = JSON.stringify({
+      title: "全球股市下跌",
+      sections: [
+        {
+          heading: "行情速览",
+          body: "美股盘前期指大幅下跌。\\n科技股普遍承压。",
+          sources: [{ title: "美股盘前期指", url: "https://finance.yahoo.com/example" }],
+        },
+      ],
+    });
+    const digest = normalizeDigest({
+      title: "今日重点财经摘要",
+      generatedAt: "2026-06-09T08:00:00.000Z",
+      sections: [{ heading: "AI 摘要", body: malformedBody }],
+    });
+    const html = digestToHtml(digest);
+
+    expect(digest.title).toBe("全球股市下跌");
+    expect(digest.sections[0]?.heading).toBe("行情速览");
+    expect(html).toContain("行情速览");
+    expect(html).toContain("科技股普遍承压");
+    expect(html).not.toContain("&quot;sections&quot;");
+    expect(html).not.toContain("{&quot;title&quot;");
   });
 });

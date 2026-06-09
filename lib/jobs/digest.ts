@@ -2,7 +2,10 @@ import { AppError } from "@/lib/domain/errors";
 import type { DigestPreview, EmailDigestSetting } from "@/lib/domain/types";
 import {
   getEmailSetting,
+  listFundRows,
+  listWatchlistRows,
   getWatchlistItems,
+  refreshFunds,
   refreshQuotes,
 } from "@/lib/db/store";
 import { getEmailProvider } from "@/lib/providers/email";
@@ -12,6 +15,8 @@ import {
   getLocalDigestRecord,
   saveLocalDigestRecord,
 } from "@/lib/settings/local-digest-state";
+import { DAILY_DIGEST_INDEX_SYMBOLS, isDailyDigestIndexQuote } from "@/lib/domain/market-indices";
+import { buildHoldingsDigestSection } from "@/lib/jobs/digest-holdings";
 
 export type DigestBuildResult = {
   setting: EmailDigestSetting;
@@ -34,17 +39,35 @@ export async function buildDigestPreview(): Promise<DigestBuildResult> {
   const setting = await getEmailSetting();
   const watchlist = await getWatchlistItems();
   const symbols = watchlist.map((item) => item.normalizedSymbol);
-  const quotes = await refreshQuotes(symbols);
+  const quoteSymbols = Array.from(new Set([...symbols, ...DAILY_DIGEST_INDEX_SYMBOLS]));
+  const quotes = await refreshQuotes(quoteSymbols);
+  await refreshFunds();
+  const watchlistQuotes = quotes.filter((quote) => symbols.includes(quote.symbol));
+  const indexQuotes = quotes.filter(isDailyDigestIndexQuote);
   const articles = await getNewsProvider().fetchMarketNews({
     symbols,
     markets: setting.markets,
     hours: 24,
   });
-  const digest = await (await getModelProvider()).generateDigest({ watchlist, quotes, articles });
+  const digest = await (await getModelProvider()).generateDigest({
+    watchlist,
+    quotes: watchlistQuotes,
+    indexQuotes,
+    articles,
+  });
+  const holdingsSection = buildHoldingsDigestSection({
+    stocks: await listWatchlistRows(),
+    funds: await listFundRows(),
+  });
 
   return {
     setting,
-    digest,
+    digest: holdingsSection
+      ? {
+          ...digest,
+          sections: [...digest.sections, holdingsSection],
+        }
+      : digest,
   };
 }
 

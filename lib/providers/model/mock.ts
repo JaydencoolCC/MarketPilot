@@ -5,10 +5,10 @@ export class MockModelProvider implements ModelProvider {
   async generateDigest(input: DigestPrompt): Promise<DigestPreview> {
     const generatedAt = new Date().toISOString();
     const topArticles = input.articles.slice(0, 3);
-    const movers = input.quotes
+    const indexMovers = input.indexQuotes
       .slice()
       .sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent))
-      .slice(0, 3);
+      .slice(0, 6);
 
     return {
       title: "今日重点财经摘要",
@@ -25,9 +25,9 @@ export class MockModelProvider implements ModelProvider {
           })),
         },
         {
-          heading: "自选股变化",
-          body: movers.length
-            ? movers
+          heading: "主要指数",
+          body: indexMovers.length
+            ? indexMovers
                 .map(
                   (quote) =>
                     `${quote.symbol} 当前 ${quote.price} ${quote.currency}，涨跌幅 ${quote.changePercent.toFixed(2)}%，行情时间 ${new Date(
@@ -35,7 +35,7 @@ export class MockModelProvider implements ModelProvider {
                     ).toLocaleString("zh-CN")}。`,
                 )
                 .join(" ")
-            : "当前没有可用行情快照。",
+            : "当前没有可用指数行情快照。",
         },
         {
           heading: "可以继续追问",

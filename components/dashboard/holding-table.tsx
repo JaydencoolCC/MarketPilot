@@ -6,11 +6,13 @@ import { BriefcaseBusiness, Eraser, Info, Pencil, Save, Search, Trash2 } from "l
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useLocale } from "@/components/i18n/locale-provider";
 import type { FundRow, FundSearchResult, FundSnapshot, Quote, Security, WatchlistRow } from "@/lib/domain/types";
 import { calculateStockHolding, hasStockHolding } from "@/lib/domain/holdings";
 import { fundDetailUrl, stockDetailUrl } from "@/lib/domain/xueqiu";
-import { cnMarketName, formatCurrency, formatPercent, formatUnitPrice } from "@/lib/utils/format";
+import { formatCurrency, formatPercent, formatUnitPrice } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
+import { dictionary, localizedApiMessage } from "@/lib/i18n";
 
 type HoldingTableProps = {
   initialRows: WatchlistRow[];
@@ -134,6 +136,7 @@ function safeSessionRemove(key: string) {
 }
 
 export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps) {
+  const { locale, t } = useLocale();
   const [activeAsset, setActiveAsset] = useState<"stocks" | "funds">("stocks");
   const [rows, setRows] = useState(initialRows);
   const [selectedId, setSelectedId] = useState(initialRows[0]?.id ?? "");
@@ -153,12 +156,12 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
   const [fundPnl, setFundPnl] = useState(fundPnlInputValue(initialFundRows[0]));
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
-  const [message, setMessage] = useState("搜索一只股票，录入平均成本价和股票数。");
-  const [fundMessage, setFundMessage] = useState("搜索一只基金，录入当前市值和持仓收益。");
+  const [message, setMessage] = useState(t.holdings.stockInitial);
+  const [fundMessage, setFundMessage] = useState(t.holdings.fundInitial);
   const [lockPassword, setLockPassword] = useState<string | null>(null);
   const [lockInput, setLockInput] = useState("");
   const [lockConfirmInput, setLockConfirmInput] = useState("");
-  const [lockMessage, setLockMessage] = useState("请输入持仓页密码。");
+  const [lockMessage, setLockMessage] = useState(t.holdings.lock.enterPassword);
   const [isLocked, setIsLocked] = useState(true);
   const [lockReady, setLockReady] = useState(false);
   const pollingRef = useRef(false);
@@ -187,6 +190,13 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
   }, [rows]);
 
   useEffect(() => {
+    const previous = dictionary[locale === "zh" ? "en" : "zh"].holdings;
+    setMessage((current) => (current === previous.stockInitial ? t.holdings.stockInitial : current));
+    setFundMessage((current) => (current === previous.fundInitial ? t.holdings.fundInitial : current));
+    setLockMessage((current) => (current === previous.lock.enterPassword ? t.holdings.lock.enterPassword : current));
+  }, [locale, t.holdings]);
+
+  useEffect(() => {
     fundRowsRef.current = fundRows;
   }, [fundRows]);
 
@@ -203,8 +213,8 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
     setIsLocked(true);
     setLockInput("");
     setLockConfirmInput("");
-    setLockMessage("持仓页已锁定，请输入密码。");
-  }, [clearLockTimer]);
+    setLockMessage(t.holdings.lock.locked);
+  }, [clearLockTimer, t.holdings.lock.locked]);
 
   const resetLockTimer = useCallback(() => {
     clearLockTimer();
@@ -224,15 +234,15 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
       setLockMessage(
         savedPassword
           ? isSessionActive
-            ? "已解锁持仓页。"
-            : "请输入持仓页密码。"
-          : "首次使用前，请设置持仓页密码。",
+            ? t.holdings.lock.unlocked
+            : t.holdings.lock.enterPassword
+          : t.holdings.lock.setup,
       );
     } finally {
       setLockReady(true);
     }
     return clearLockTimer;
-  }, [clearLockTimer]);
+  }, [clearLockTimer, t.holdings.lock]);
 
   useEffect(() => {
     if (!lockReady || isLocked) return undefined;
@@ -271,13 +281,13 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
       });
       const payload = (await response.json()) as { data?: Security[]; error?: { message: string } };
       if (!response.ok) {
-        setMessage(payload.error?.message ?? "搜索暂时不可用。");
+        setMessage(localizedApiMessage(locale, payload.error?.message, t.holdings.stockSearchFailed));
         return;
       }
       if (requestId !== searchRequestRef.current) return;
       setSecuritySuggestions(payload.data ?? []);
       if (!payload.data?.length) {
-        setMessage("没有找到匹配证券，可以换成股票代码或公司名再试。");
+        setMessage(t.holdings.stockNoMatch);
       }
     } finally {
       if (requestId === searchRequestRef.current) setSearching(false);
@@ -303,13 +313,13 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
       });
       const payload = (await response.json()) as { data?: FundSearchResult[]; error?: { message: string } };
       if (!response.ok) {
-        setFundMessage(payload.error?.message ?? "基金搜索暂时不可用。");
+        setFundMessage(localizedApiMessage(locale, payload.error?.message, t.holdings.fundSearchFailed));
         return;
       }
       if (requestId !== fundSearchRequestRef.current) return;
       setFundSuggestions(payload.data ?? []);
       if (!payload.data?.length) {
-        setFundMessage("没有找到匹配基金，可以换成基金代码或 ETF 代码再试。");
+        setFundMessage(t.holdings.fundNoMatch);
       }
     } finally {
       if (requestId === fundSearchRequestRef.current) setSearching(false);
@@ -395,11 +405,11 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
     const password = lockInput.trim();
     if (isSettingPassword) {
       if (password.length < 4) {
-        setLockMessage("密码至少需要 4 位。");
+        setLockMessage(t.holdings.lock.minLength);
         return;
       }
       if (password !== lockConfirmInput.trim()) {
-        setLockMessage("两次输入的密码不一致。");
+        setLockMessage(t.holdings.lock.mismatch);
         return;
       }
       const saved = safeLocalSet(HOLDING_LOCK_PASSWORD_KEY, password);
@@ -408,20 +418,20 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
       setLockPassword(password);
       setLockInput("");
       setLockConfirmInput("");
-      setLockMessage(saved ? "已解锁持仓页。" : "浏览器无法保存密码，本次已临时解锁。");
+      setLockMessage(saved ? t.holdings.lock.unlocked : t.holdings.lock.temporaryUnlock);
       setIsLocked(false);
       resetLockTimer();
       return;
     }
 
     if (!lockPassword || password !== lockPassword) {
-      setLockMessage("密码不正确，请再试一次。");
+      setLockMessage(t.holdings.lock.wrong);
       return;
     }
     setLockInput("");
     safeSessionSet(HOLDING_LOCK_SESSION_KEY, "true");
     safeSessionSet(HOLDING_LOCK_LAST_ACTIVITY_KEY, String(Date.now()));
-    setLockMessage("已解锁持仓页。");
+    setLockMessage(t.holdings.lock.unlocked);
     setIsLocked(false);
     resetLockTimer();
   }
@@ -429,18 +439,18 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
   async function saveHolding(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedRow && !selectedSecurity) {
-      setMessage("请先搜索并选择一只股票。");
+      setMessage(t.holdings.saveStockRequiresPick);
       return;
     }
 
     const parsedCostPrice = Number(costPrice);
     const parsedShares = Number(shares);
     if (!Number.isFinite(parsedCostPrice) || !Number.isFinite(parsedShares)) {
-      setMessage("成本价和股票数需要填写数字。");
+      setMessage(t.holdings.stockNumbersInvalid);
       return;
     }
     if (parsedCostPrice <= 0 || parsedShares <= 0) {
-      setMessage("成本价和股票数必须大于 0。");
+      setMessage(t.holdings.stockNumbersPositive);
       return;
     }
 
@@ -459,7 +469,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
           error?: { message: string };
         };
         if (!addResponse.ok || !addPayload.data) {
-          setMessage(addPayload.error?.message ?? "添加股票失败，请稍后重试。");
+          setMessage(localizedApiMessage(locale, addPayload.error?.message, t.holdings.addStockFailed));
           return;
         }
         rowForHolding = addPayload.data;
@@ -468,7 +478,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
       }
 
       if (!rowForHolding) {
-        setMessage("请先搜索并选择一只股票。");
+        setMessage(t.holdings.saveStockRequiresPick);
         return;
       }
 
@@ -482,7 +492,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
         error?: { message: string };
       };
       if (!response.ok) {
-        setMessage(payload.error?.message ?? "持仓保存失败，请稍后重试。");
+        setMessage(localizedApiMessage(locale, payload.error?.message, t.holdings.stockSaveFailed));
         return;
       }
       setRows(payload.watchlist ?? []);
@@ -491,7 +501,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
       setStockQuery(holdingOptionLabel(rowForHolding));
       setSecuritySuggestions([]);
       setIsStockSearchOpen(false);
-      setMessage(`${hasStockHolding(rowForHolding) ? "已更新" : "已保存"} ${rowForHolding.name} 的持仓。`);
+      setMessage(t.holdings.stockSaved(hasStockHolding(rowForHolding), rowForHolding.name));
     } finally {
       setLoading(false);
     }
@@ -511,7 +521,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
         error?: { message: string };
       };
       if (!response.ok) {
-        setMessage(payload.error?.message ?? "清空持仓失败，请稍后重试。");
+        setMessage(localizedApiMessage(locale, payload.error?.message, t.holdings.clearStockFailed));
         return;
       }
       setRows(payload.watchlist ?? []);
@@ -519,7 +529,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
         setCostPrice("");
         setShares("");
       }
-      setMessage(`已删除 ${row.name} 的持仓记录。`);
+      setMessage(t.holdings.stockCleared(row.name));
     } finally {
       setLoading(false);
     }
@@ -528,18 +538,18 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
   async function saveFundHolding(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedFundRow && !selectedFund) {
-      setFundMessage("请先搜索并选择一只基金。");
+      setFundMessage(t.holdings.saveFundRequiresPick);
       return;
     }
 
     const parsedMarketValue = Number(fundMarketValue);
     const parsedPnl = Number(fundPnl);
     if (!Number.isFinite(parsedMarketValue) || !Number.isFinite(parsedPnl)) {
-      setFundMessage("当前市值和持仓收益需要填写数字。");
+      setFundMessage(t.holdings.fundNumbersInvalid);
       return;
     }
     if (parsedMarketValue <= 0) {
-      setFundMessage("当前市值必须大于 0。");
+      setFundMessage(t.holdings.fundMarketValuePositive);
       return;
     }
 
@@ -562,7 +572,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
           error?: { message: string };
         };
         if (!addResponse.ok || !addPayload.data) {
-          setFundMessage(addPayload.error?.message ?? "添加基金失败，请稍后重试。");
+          setFundMessage(localizedApiMessage(locale, addPayload.error?.message, t.holdings.addFundFailed));
           return;
         }
         rowForHolding = addPayload.data;
@@ -571,19 +581,19 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
       }
 
       if (!rowForHolding) {
-        setFundMessage("请先搜索并选择一只基金。");
+        setFundMessage(t.holdings.saveFundRequiresPick);
         return;
       }
 
       const currentPrice = fundCurrentPrice(rowForHolding);
       if (!currentPrice || currentPrice <= 0) {
-        setFundMessage("这只基金还没有可用净值，暂时无法按市值反推持仓。");
+        setFundMessage(t.holdings.fundNoValue);
         return;
       }
       const parsedShares = parsedMarketValue / currentPrice;
       const parsedCostValue = parsedMarketValue - parsedPnl;
       if (parsedCostValue <= 0) {
-        setFundMessage("当前市值减持仓收益后，持仓成本必须大于 0。");
+        setFundMessage(t.holdings.fundCostPositive);
         return;
       }
       const parsedCostPrice = parsedCostValue / parsedShares;
@@ -598,7 +608,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
         error?: { message: string };
       };
       if (!response.ok) {
-        setFundMessage(payload.error?.message ?? "基金持仓保存失败，请稍后重试。");
+        setFundMessage(localizedApiMessage(locale, payload.error?.message, t.holdings.fundSaveFailed));
         return;
       }
       setFundRows(payload.funds ?? []);
@@ -607,7 +617,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
       setFundQuery(fundOptionLabel(rowForHolding));
       setFundSuggestions([]);
       setIsFundSearchOpen(false);
-      setFundMessage(`${hasFundHolding(rowForHolding) ? "已更新" : "已保存"} ${rowForHolding.name} 的基金持仓。`);
+      setFundMessage(t.holdings.fundSaved(hasFundHolding(rowForHolding), rowForHolding.name));
     } finally {
       setLoading(false);
     }
@@ -627,7 +637,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
         error?: { message: string };
       };
       if (!response.ok) {
-        setFundMessage(payload.error?.message ?? "清空基金持仓失败，请稍后重试。");
+        setFundMessage(localizedApiMessage(locale, payload.error?.message, t.holdings.clearFundFailed));
         return;
       }
       setFundRows(payload.funds ?? []);
@@ -635,7 +645,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
         setFundMarketValue("");
         setFundPnl("");
       }
-      setFundMessage(`已删除 ${row.name} 的基金持仓记录。`);
+      setFundMessage(t.holdings.fundCleared(row.name));
     } finally {
       setLoading(false);
     }
@@ -676,7 +686,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
     setIsStockSearchOpen(false);
     setCostPrice("");
     setShares("");
-    setMessage(`已选择 ${security.name}，保存持仓时会同步加入自选股。`);
+    setMessage(t.holdings.stockSelected(security.name));
   }
 
   function chooseFund(fund: FundSearchResult) {
@@ -692,7 +702,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
     setIsFundSearchOpen(false);
     setFundMarketValue("");
     setFundPnl("");
-    setFundMessage(`已选择 ${fund.name}，保存持仓时会同步加入自选基金。`);
+    setFundMessage(t.holdings.fundSelected(fund.name));
   }
 
   function editHolding(row: WatchlistRow) {
@@ -703,7 +713,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
     setIsStockSearchOpen(false);
     setCostPrice(inputValue(row.costPrice));
     setShares(inputValue(row.shares));
-    setMessage(`正在修改 ${row.name} 的持仓。`);
+    setMessage(t.holdings.stockEditing(row.name));
   }
 
   function editFundHolding(row: FundRow) {
@@ -714,11 +724,11 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
     setIsFundSearchOpen(false);
     setFundMarketValue(fundMarketValueInputValue(row));
     setFundPnl(fundPnlInputValue(row));
-    setFundMessage(`正在修改 ${row.name} 的基金持仓。`);
+    setFundMessage(t.holdings.fundEditing(row.name));
   }
 
-  const lockTitle = isSettingPassword ? "设置持仓页密码" : "持仓页已锁定";
-  const lockButtonText = isSettingPassword ? "设置并解锁" : "解锁";
+  const lockTitle = isSettingPassword ? t.holdings.lock.setupTitle : t.holdings.lock.lockedTitle;
+  const lockButtonText = isSettingPassword ? t.holdings.lock.setupButton : t.holdings.lock.unlockButton;
 
   return (
     <section
@@ -732,9 +742,9 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
             className="w-full max-w-sm rounded-lg border border-line bg-white p-5 shadow-soft"
           >
             <div>
-              <h3 className="text-base font-semibold text-ink">{lockReady ? lockTitle : "持仓页已锁定"}</h3>
+              <h3 className="text-base font-semibold text-ink">{lockReady ? lockTitle : t.holdings.lock.lockedTitle}</h3>
               <p className="mt-2 text-sm leading-6 text-muted">
-                {lockReady ? lockMessage : "正在准备持仓页密码锁。"}
+                {lockReady ? lockMessage : t.holdings.lock.preparing}
               </p>
             </div>
             <div className="mt-4 space-y-3">
@@ -742,8 +752,8 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                 type="password"
                 value={lockInput}
                 onChange={(event) => setLockInput(event.target.value)}
-                placeholder={isSettingPassword ? "设置密码" : "输入密码"}
-                aria-label={isSettingPassword ? "设置持仓页密码" : "输入持仓页密码"}
+                placeholder={isSettingPassword ? t.holdings.lock.setPassword : t.holdings.lock.inputPassword}
+                aria-label={isSettingPassword ? t.holdings.lock.setPasswordAria : t.holdings.lock.inputPasswordAria}
                 autoFocus
               />
               {isSettingPassword ? (
@@ -751,8 +761,8 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                   type="password"
                   value={lockConfirmInput}
                   onChange={(event) => setLockConfirmInput(event.target.value)}
-                  placeholder="再次输入密码"
-                  aria-label="再次输入持仓页密码"
+                  placeholder={t.holdings.lock.confirmPassword}
+                  aria-label={t.holdings.lock.confirmPasswordAria}
                 />
               ) : null}
             </div>
@@ -767,7 +777,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
       <div>
         <div className="flex flex-col gap-4 border-b border-line p-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-ink">持仓盈亏</h2>
+            <h2 className="text-lg font-semibold text-ink">{t.holdings.title}</h2>
             <p className="mt-1 text-sm text-muted">{activeAsset === "stocks" ? message : fundMessage}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -778,11 +788,11 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                 size="sm"
                 onClick={() => setActiveAsset(item)}
               >
-                {item === "stocks" ? "股票" : "基金"}
+                {item === "stocks" ? t.holdings.stockTab : t.holdings.fundTab}
               </Button>
             ))}
             <Badge tone="blue">
-              {activeAsset === "stocks" ? `${holdingRows.length} 只已录入` : `${fundHoldingRows.length} 只已录入`}
+              {activeAsset === "stocks" ? t.holdings.recordedCount(holdingRows.length) : t.holdings.recordedCount(fundHoldingRows.length)}
             </Badge>
           </div>
         </div>
@@ -799,19 +809,19 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                   onBlur={() => {
                     window.setTimeout(() => setIsStockSearchOpen(false), 120);
                   }}
-                  placeholder="搜索股票代码或公司名，例如 AAPL、腾讯、中国电信"
-                  aria-label="搜索股票"
+                  placeholder={t.holdings.stockSearchPlaceholder}
+                  aria-label={t.stockTable.searchAria}
                   className="pl-9"
                   autoComplete="off"
                 />
                 {isStockSearchOpen ? (
                   <div className="absolute left-0 right-0 top-12 z-20 max-h-72 overflow-y-auto rounded-lg border border-line bg-white shadow-soft">
                     {!stockQuery.trim() ? (
-                      <div className="px-4 py-3 text-sm text-muted">输入股票代码或公司名开始搜索</div>
+                      <div className="px-4 py-3 text-sm text-muted">{t.holdings.stockStartSearch}</div>
                     ) : searching ? (
-                      <div className="px-4 py-3 text-sm text-muted">搜索中...</div>
+                      <div className="px-4 py-3 text-sm text-muted">{t.common.searching}...</div>
                     ) : securitySuggestions.length === 0 ? (
-                      <div className="px-4 py-3 text-sm text-muted">没有匹配的股票</div>
+                      <div className="px-4 py-3 text-sm text-muted">{t.holdings.noStocks}</div>
                     ) : (
                       securitySuggestions.map((security) => {
                         const alreadyInWatchlist = rows.some(
@@ -832,8 +842,8 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                               <span className="mt-1 block text-xs text-muted">{security.normalizedSymbol}</span>
                             </span>
                             <span className="flex items-center gap-2">
-                              {alreadyInWatchlist ? <Badge tone="green">已自选</Badge> : null}
-                              <Badge tone="blue">{cnMarketName(security.market)}</Badge>
+                              {alreadyInWatchlist ? <Badge tone="green">{t.holdings.alreadyWatchlist}</Badge> : null}
+                              <Badge tone="blue">{t.common.markets[security.market]}</Badge>
                             </span>
                           </button>
                         );
@@ -846,19 +856,19 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                 value={costPrice}
                 onChange={(event) => setCostPrice(event.target.value)}
                 inputMode="decimal"
-                placeholder="平均成本价"
-                aria-label="平均成本价"
+                placeholder={t.holdings.averageCost}
+                aria-label={t.holdings.averageCost}
               />
               <Input
                 value={shares}
                 onChange={(event) => setShares(event.target.value)}
                 inputMode="decimal"
-                placeholder="股票数"
-                aria-label="股票数"
+                placeholder={t.holdings.shares}
+                aria-label={t.holdings.shares}
               />
               <Button type="submit" disabled={loading || searching || (!selectedRow && !selectedSecurity)}>
                 <Save className="h-4 w-4" />
-                保存
+                {t.common.save}
               </Button>
               <Button
                 type="button"
@@ -867,7 +877,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                 onClick={() => clearHolding()}
               >
                 <Eraser className="h-4 w-4" />
-                清空
+                {t.common.clear}
               </Button>
             </form>
 
@@ -876,9 +886,9 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-moss/10 text-moss">
                   <BriefcaseBusiness className="h-5 w-5" />
                 </div>
-                <h3 className="mt-4 text-base font-semibold text-ink">还没有股票持仓</h3>
+                <h3 className="mt-4 text-base font-semibold text-ink">{t.holdings.emptyStockTitle}</h3>
                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">
-                  直接搜索股票，录入平均成本价和股票数，我会同步加入自选股并按当前行情自动计算浮动盈亏。
+                  {t.holdings.emptyStockBody}
                 </p>
               </div>
             ) : (
@@ -886,18 +896,18 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                 <table className="w-full min-w-[1480px] border-collapse text-left text-sm">
                 <thead className="whitespace-nowrap bg-surface/80 text-xs uppercase tracking-normal text-muted">
                   <tr>
-                    <th className="px-4 py-3 font-medium">名称</th>
-                    <th className="px-4 py-3 font-medium">代码</th>
-                    <th className="px-4 py-3 font-medium">市场</th>
-                    <th className="px-4 py-3 font-medium">成本价</th>
-                    <th className="px-4 py-3 font-medium">股票数</th>
-                    <th className="px-4 py-3 font-medium">现价</th>
-                    <th className="px-4 py-3 font-medium">持仓成本</th>
-                    <th className="px-4 py-3 font-medium">当前市值</th>
-                    <th className="px-4 py-3 font-medium">今日收益</th>
-                    <th className="px-4 py-3 font-medium">浮动盈亏</th>
-                    <th className="px-4 py-3 font-medium">盈亏比例</th>
-                    <th className="px-4 py-3 text-right font-medium">操作</th>
+                    <th className="px-4 py-3 font-medium">{t.common.name}</th>
+                    <th className="px-4 py-3 font-medium">{t.common.symbol}</th>
+                    <th className="px-4 py-3 font-medium">{t.common.market}</th>
+                    <th className="px-4 py-3 font-medium">{t.holdings.columns.costPrice}</th>
+                    <th className="px-4 py-3 font-medium">{t.holdings.columns.shares}</th>
+                    <th className="px-4 py-3 font-medium">{t.holdings.columns.currentPrice}</th>
+                    <th className="px-4 py-3 font-medium">{t.holdings.columns.costValue}</th>
+                    <th className="px-4 py-3 font-medium">{t.holdings.columns.marketValue}</th>
+                    <th className="px-4 py-3 font-medium">{t.holdings.columns.todayPnl}</th>
+                    <th className="px-4 py-3 font-medium">{t.holdings.columns.unrealizedPnl}</th>
+                    <th className="px-4 py-3 font-medium">{t.holdings.columns.unrealizedPnlPercent}</th>
+                    <th className="px-4 py-3 text-right font-medium">{t.common.actions}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -910,26 +920,26 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                         </td>
                         <td className="px-4 py-4 font-mono text-xs text-muted">{row.normalizedSymbol}</td>
                         <td className="px-4 py-4">
-                          <Badge tone="blue">{cnMarketName(row.market)}</Badge>
+                          <Badge tone="blue">{t.common.markets[row.market]}</Badge>
                         </td>
                         <td className="whitespace-nowrap px-4 py-4 text-ink">
                           {formatUnitPrice(row.costPrice ?? 0, row.currency)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-4 text-ink">{row.shares}</td>
                         <td className="whitespace-nowrap px-4 py-4 font-medium text-ink">
-                          {row.quote ? formatUnitPrice(row.quote.price, row.quote.currency) : "等待行情"}
+                          {row.quote ? formatUnitPrice(row.quote.price, row.quote.currency) : t.common.waitQuote}
                         </td>
                         <td className="whitespace-nowrap px-4 py-4 text-ink">
-                          {metrics ? formatCurrency(metrics.costValue, metrics.currency) : "等待行情"}
+                          {metrics ? formatCurrency(metrics.costValue, metrics.currency) : t.common.waitQuote}
                         </td>
                         <td className="whitespace-nowrap px-4 py-4 text-ink">
-                          {metrics ? formatCurrency(metrics.marketValue, metrics.currency) : "等待行情"}
+                          {metrics ? formatCurrency(metrics.marketValue, metrics.currency) : t.common.waitQuote}
                         </td>
                         <td className={cn("whitespace-nowrap px-4 py-4 font-semibold", pnlColorClass(metrics?.todayPnl))}>
-                          {metrics ? signedCurrency(metrics.todayPnl, metrics.currency) : "等待行情"}
+                          {metrics ? signedCurrency(metrics.todayPnl, metrics.currency) : t.common.waitQuote}
                         </td>
                         <td className={cn("whitespace-nowrap px-4 py-4 font-semibold", pnlColorClass(metrics?.unrealizedPnl))}>
-                          {metrics ? signedCurrency(metrics.unrealizedPnl, metrics.currency) : "等待行情"}
+                          {metrics ? signedCurrency(metrics.unrealizedPnl, metrics.currency) : t.common.waitQuote}
                         </td>
                         <td className={cn("whitespace-nowrap px-4 py-4 font-semibold", pnlColorClass(metrics?.unrealizedPnlPercent ?? undefined))}>
                           {metrics?.unrealizedPnlPercent === null || metrics === null
@@ -942,7 +952,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                               href={stockDetailUrl(row.normalizedSymbol)}
                               target="_blank"
                               rel="noreferrer"
-                              aria-label="查看详情"
+                              aria-label={t.common.details}
                               className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted transition hover:bg-black/5 hover:text-ink"
                             >
                               <Info className="h-4 w-4" />
@@ -951,7 +961,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                               type="button"
                               variant="ghost"
                               size="icon"
-                              aria-label="修改持仓"
+                              aria-label={t.holdings.editHoldingAria}
                               onClick={() => editHolding(row)}
                             >
                               <Pencil className="h-4 w-4" />
@@ -960,7 +970,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                               type="button"
                               variant="ghost"
                               size="icon"
-                              aria-label="删除持仓"
+                              aria-label={t.holdings.deleteHoldingAria}
                               onClick={() => clearHolding(row)}
                             >
                               <Trash2 className="h-4 w-4" />
@@ -987,19 +997,19 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                   onBlur={() => {
                     window.setTimeout(() => setIsFundSearchOpen(false), 120);
                   }}
-                  placeholder="搜索基金或 ETF，例如 110022、510300、SPY"
-                  aria-label="搜索基金"
+                  placeholder={t.holdings.fundSearchPlaceholder}
+                  aria-label={t.fundTable.searchAria}
                   className="pl-9"
                   autoComplete="off"
                 />
                 {isFundSearchOpen ? (
                   <div className="absolute left-0 right-0 top-12 z-20 max-h-72 overflow-y-auto rounded-lg border border-line bg-white shadow-soft">
                     {!fundQuery.trim() ? (
-                      <div className="px-4 py-3 text-sm text-muted">输入基金代码或名称开始搜索</div>
+                      <div className="px-4 py-3 text-sm text-muted">{t.holdings.fundStartSearch}</div>
                     ) : searching ? (
-                      <div className="px-4 py-3 text-sm text-muted">搜索中...</div>
+                      <div className="px-4 py-3 text-sm text-muted">{t.common.searching}...</div>
                     ) : fundSuggestions.length === 0 ? (
-                      <div className="px-4 py-3 text-sm text-muted">没有匹配的基金</div>
+                      <div className="px-4 py-3 text-sm text-muted">{t.holdings.noFunds}</div>
                     ) : (
                       fundSuggestions.map((fund) => {
                         const alreadyInFunds = fundRows.some(
@@ -1020,8 +1030,8 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                               <span className="mt-1 block font-mono text-xs text-muted">{fund.normalizedSymbol}</span>
                             </span>
                             <span className="flex items-center gap-2">
-                              {alreadyInFunds ? <Badge tone="green">已自选</Badge> : null}
-                              <Badge tone="blue">{fund.type === "mutual_fund" ? "公募基金" : "ETF"}</Badge>
+                              {alreadyInFunds ? <Badge tone="green">{t.holdings.alreadyWatchlist}</Badge> : null}
+                              <Badge tone="blue">{t.common.fundType[fund.type]}</Badge>
                             </span>
                           </button>
                         );
@@ -1034,19 +1044,19 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                 value={fundMarketValue}
                 onChange={(event) => setFundMarketValue(event.target.value)}
                 inputMode="decimal"
-                placeholder="当前市值"
-                aria-label="当前市值"
+                placeholder={t.holdings.marketValue}
+                aria-label={t.holdings.marketValue}
               />
               <Input
                 value={fundPnl}
                 onChange={(event) => setFundPnl(event.target.value)}
                 inputMode="decimal"
-                placeholder="持仓收益，可为负"
-                aria-label="持仓收益"
+                placeholder={t.holdings.holdingPnl}
+                aria-label={t.holdings.holdingPnl}
               />
               <Button type="submit" disabled={loading || searching || (!selectedFundRow && !selectedFund)}>
                 <Save className="h-4 w-4" />
-                保存
+                {t.common.save}
               </Button>
               <Button
                 type="button"
@@ -1055,7 +1065,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                 onClick={() => clearFundHolding()}
               >
                 <Eraser className="h-4 w-4" />
-                清空
+                {t.common.clear}
               </Button>
             </form>
 
@@ -1064,9 +1074,9 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                 <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-moss/10 text-moss">
                   <BriefcaseBusiness className="h-5 w-5" />
                 </div>
-                <h3 className="mt-4 text-base font-semibold text-ink">还没有基金持仓</h3>
+                <h3 className="mt-4 text-base font-semibold text-ink">{t.holdings.emptyFundTitle}</h3>
                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">
-                  搜索基金或 ETF，录入当前市值和持仓收益，我会按最新净值或估值自动核算份额与成本。
+                  {t.holdings.emptyFundBody}
                 </p>
               </div>
             ) : (
@@ -1074,18 +1084,18 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                 <table className="w-full min-w-[1480px] border-collapse text-left text-sm">
                   <thead className="whitespace-nowrap bg-surface/80 text-xs uppercase tracking-normal text-muted">
                     <tr>
-                      <th className="px-4 py-3 font-medium">名称</th>
-                      <th className="px-4 py-3 font-medium">代码</th>
-                      <th className="px-4 py-3 font-medium">类型</th>
-                      <th className="px-4 py-3 font-medium">成本净值</th>
-                      <th className="px-4 py-3 font-medium">份额</th>
-                      <th className="px-4 py-3 font-medium">当前值</th>
-                      <th className="px-4 py-3 font-medium">持仓成本</th>
-                      <th className="px-4 py-3 font-medium">当前市值</th>
-                      <th className="px-4 py-3 font-medium">今日收益</th>
-                      <th className="px-4 py-3 font-medium">浮动盈亏</th>
-                      <th className="px-4 py-3 font-medium">盈亏比例</th>
-                      <th className="px-4 py-3 text-right font-medium">操作</th>
+                      <th className="px-4 py-3 font-medium">{t.common.name}</th>
+                      <th className="px-4 py-3 font-medium">{t.common.symbol}</th>
+                      <th className="px-4 py-3 font-medium">{t.common.type}</th>
+                      <th className="px-4 py-3 font-medium">{t.holdings.columns.costNetValue}</th>
+                      <th className="px-4 py-3 font-medium">{t.holdings.columns.fundShares}</th>
+                      <th className="px-4 py-3 font-medium">{t.holdings.columns.currentValue}</th>
+                      <th className="px-4 py-3 font-medium">{t.holdings.columns.costValue}</th>
+                      <th className="px-4 py-3 font-medium">{t.holdings.columns.marketValue}</th>
+                      <th className="px-4 py-3 font-medium">{t.holdings.columns.todayPnl}</th>
+                      <th className="px-4 py-3 font-medium">{t.holdings.columns.unrealizedPnl}</th>
+                      <th className="px-4 py-3 font-medium">{t.holdings.columns.unrealizedPnlPercent}</th>
+                      <th className="px-4 py-3 text-right font-medium">{t.common.actions}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1098,26 +1108,26 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                           </td>
                           <td className="px-4 py-4 font-mono text-xs text-muted">{row.normalizedSymbol}</td>
                           <td className="px-4 py-4">
-                            <Badge tone="blue">{row.type === "mutual_fund" ? "公募基金" : "ETF"}</Badge>
+                            <Badge tone="blue">{t.common.fundType[row.type]}</Badge>
                           </td>
                           <td className="whitespace-nowrap px-4 py-4 text-ink">
                             {formatUnitPrice(row.costPrice ?? 0, row.currency)}
                           </td>
                           <td className="whitespace-nowrap px-4 py-4 text-ink">{row.shares}</td>
                           <td className="whitespace-nowrap px-4 py-4 font-medium text-ink">
-                            {metrics ? formatUnitPrice(metrics.currentPrice, metrics.currency) : "等待净值"}
+                            {metrics ? formatUnitPrice(metrics.currentPrice, metrics.currency) : t.common.waitValue}
                           </td>
                           <td className="whitespace-nowrap px-4 py-4 text-ink">
-                            {metrics ? formatCurrency(metrics.costValue, metrics.currency) : "等待净值"}
+                            {metrics ? formatCurrency(metrics.costValue, metrics.currency) : t.common.waitValue}
                           </td>
                           <td className="whitespace-nowrap px-4 py-4 text-ink">
-                            {metrics ? formatCurrency(metrics.marketValue, metrics.currency) : "等待净值"}
+                            {metrics ? formatCurrency(metrics.marketValue, metrics.currency) : t.common.waitValue}
                           </td>
                           <td className={cn("whitespace-nowrap px-4 py-4 font-semibold", pnlColorClass(metrics?.todayPnl))}>
-                            {metrics ? signedCurrency(metrics.todayPnl, metrics.currency) : "等待净值"}
+                            {metrics ? signedCurrency(metrics.todayPnl, metrics.currency) : t.common.waitValue}
                           </td>
                           <td className={cn("whitespace-nowrap px-4 py-4 font-semibold", pnlColorClass(metrics?.unrealizedPnl))}>
-                            {metrics ? signedCurrency(metrics.unrealizedPnl, metrics.currency) : "等待净值"}
+                            {metrics ? signedCurrency(metrics.unrealizedPnl, metrics.currency) : t.common.waitValue}
                           </td>
                           <td className={cn("whitespace-nowrap px-4 py-4 font-semibold", pnlColorClass(metrics?.unrealizedPnlPercent ?? undefined))}>
                             {metrics?.unrealizedPnlPercent === null || metrics === null
@@ -1130,7 +1140,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                                 href={fundDetailUrl(row.normalizedSymbol)}
                                 target="_blank"
                                 rel="noreferrer"
-                                aria-label="查看详情"
+                                aria-label={t.common.details}
                                 className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted transition hover:bg-black/5 hover:text-ink"
                               >
                                 <Info className="h-4 w-4" />
@@ -1139,7 +1149,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                                 type="button"
                                 variant="ghost"
                                 size="icon"
-                                aria-label="修改基金持仓"
+                                aria-label={t.holdings.editFundHoldingAria}
                                 onClick={() => editFundHolding(row)}
                               >
                                 <Pencil className="h-4 w-4" />
@@ -1148,7 +1158,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                                 type="button"
                                 variant="ghost"
                                 size="icon"
-                                aria-label="删除基金持仓"
+                                aria-label={t.holdings.deleteFundHoldingAria}
                                 onClick={() => clearFundHolding(row)}
                               >
                                 <Trash2 className="h-4 w-4" />

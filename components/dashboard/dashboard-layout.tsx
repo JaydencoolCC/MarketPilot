@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AssetNav, type DashboardView } from "@/components/dashboard/asset-nav";
+import { useLocale } from "@/components/i18n/locale-provider";
 
 type DashboardLayoutProps = {
   active: DashboardView;
@@ -18,6 +19,7 @@ function clamp(value: number, min: number, max: number) {
 }
 
 export function DashboardLayout({ active, main, aside }: DashboardLayoutProps) {
+  const { t } = useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const mainWidthRef = useRef(DEFAULT_MAIN_WIDTH);
   const [mainWidth, setMainWidth] = useState(DEFAULT_MAIN_WIDTH);
@@ -67,7 +69,7 @@ export function DashboardLayout({ active, main, aside }: DashboardLayoutProps) {
       </div>
       <button
         type="button"
-        aria-label="调整主面板宽度"
+        aria-label={t.dashboard.resizeMain}
         className="hidden h-[calc(100vh-10rem)] w-2 cursor-col-resize rounded-full bg-line/70 transition hover:bg-moss/40 lg:block"
         onPointerDown={startResize}
       />

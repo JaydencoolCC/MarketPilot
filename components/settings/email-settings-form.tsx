@@ -5,7 +5,9 @@ import { Mail, Save, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { useLocale } from "@/components/i18n/locale-provider";
 import type { EmailDigestSetting, Market, PublicIntegrationSetting } from "@/lib/domain/types";
+import { localizedApiMessage } from "@/lib/i18n";
 
 type EmailSettingsFormProps = {
   initialSetting: EmailDigestSetting;
@@ -18,21 +20,30 @@ export function EmailSettingsForm({
   integration,
   onProviderUpdate,
 }: EmailSettingsFormProps) {
+  const { locale, t } = useLocale();
   const realEmailReady = Boolean(integration && integration.source !== "mock" && integration.status !== "failed");
-  const providerLabel = integration?.source === "file" ? "配置文件" : integration?.source === "env" ? "环境变量" : (integration?.provider ?? "未配置");
+  const providerLabel = integration?.source === "file"
+    ? t.common.sourceStatus.file
+    : integration?.source === "env"
+      ? t.common.sourceStatus.env
+      : (integration?.provider ?? t.emailSettings.providerUnconfigured);
   const [setting, setSetting] = useState(initialSetting);
   const [authCode, setAuthCode] = useState("");
   const [smtpHost, setSmtpHost] = useState("smtp.qq.com");
   const [smtpPort, setSmtpPort] = useState("465");
   const [from, setFrom] = useState(integration?.baseUrl ?? "");
   const providerMessage = authCode.trim()
-    ? "已输入新的 SMTP 授权码，保存后会替换旧连接。"
-    : integration?.statusMessage ?? "邮件 provider 尚未配置。";
+    ? t.emailSettings.newAuthCode
+    : locale === "zh"
+      ? integration?.statusMessage ?? t.emailSettings.providerMissing
+      : integration?.status === "success"
+        ? t.emailSettings.connectionSaved
+        : t.emailSettings.providerMissing;
   const defaultMessage = realEmailReady
-    ? "我会按这个时间整理并发送每日摘要。"
+    ? t.emailSettings.readyMessage
     : integration?.secretConfigured
-      ? "邮件连接已保存。可以先测试发送。"
-      : "当前还没有真实邮件连接，保存设置不会发出邮件。";
+      ? t.emailSettings.connectionSaved
+      : t.emailSettings.notReadyMessage;
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
@@ -63,16 +74,16 @@ export function EmailSettingsForm({
       });
       const payload = (await response.json()) as { data?: EmailDigestSetting; error?: { message: string } };
       if (!response.ok || !payload.data) {
-        setMessage(payload.error?.message ?? "保存失败，请检查邮箱和时间。");
+        setMessage(localizedApiMessage(locale, payload.error?.message, t.emailSettings.saveFailed));
         return;
       }
       setSetting(payload.data);
       if (authCode.trim()) {
         const savedProvider = await saveProviderConnection();
-        if (savedProvider) setMessage("设置和邮件连接已保存。可以先测试发送。");
+        if (savedProvider) setMessage(t.emailSettings.settingsAndProviderSaved);
         return;
       }
-      setMessage(realEmailReady ? "已保存。到点后会通过真实邮件 provider 发送。" : "已保存，但当前邮件 provider 还不能真实发送。");
+      setMessage(realEmailReady ? t.emailSettings.savedReady : t.emailSettings.savedNotReady);
     } finally {
       setSaving(false);
     }
@@ -88,10 +99,10 @@ export function EmailSettingsForm({
         error?: { message: string };
       };
       if (!response.ok) {
-        setMessage(payload.error?.message ?? "邮件发送失败，请检查 SMTP 配置。");
+        setMessage(localizedApiMessage(locale, payload.error?.message, t.emailSettings.sendFailed));
         return;
       }
-      setMessage(payload.data?.message ?? "邮件请求已处理。");
+      setMessage(localizedApiMessage(locale, payload.data?.message, t.emailSettings.requestHandled));
     } finally {
       setSending(false);
     }
@@ -101,7 +112,7 @@ export function EmailSettingsForm({
     setSavingProvider(true);
     try {
       const savedProvider = await saveProviderConnection();
-      if (savedProvider) setMessage("邮件连接已保存。可以先测试发送。");
+      if (savedProvider) setMessage(t.emailSettings.providerSaved);
     } finally {
       setSavingProvider(false);
     }
@@ -109,7 +120,7 @@ export function EmailSettingsForm({
 
   async function saveProviderConnection() {
     if (!authCode.trim() && !integration?.secretConfigured) {
-      setMessage("请输入 SMTP 授权码后再保存邮件连接。");
+      setMessage(t.emailSettings.enterAuthCode);
       return false;
     }
 
@@ -128,7 +139,7 @@ export function EmailSettingsForm({
       error?: { message: string };
     };
     if (!response.ok || !payload.data) {
-      setMessage(payload.error?.message ?? "保存邮件连接失败。");
+      setMessage(localizedApiMessage(locale, payload.error?.message, t.emailSettings.providerSaveFailed));
       return false;
     }
     onProviderUpdate(payload.data);
@@ -140,10 +151,10 @@ export function EmailSettingsForm({
     <form onSubmit={save} className="rounded-lg border border-line bg-white p-5 shadow-soft">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-ink">每日邮件</h2>
+          <h2 className="text-lg font-semibold text-ink">{t.emailSettings.title}</h2>
           <p className="mt-1 text-sm text-muted">{message ?? defaultMessage}</p>
           <p className="mt-1 text-xs leading-5 text-muted">
-            当前邮件来源：{providerLabel}。{providerMessage}
+            {t.emailSettings.sourceLine(providerLabel, providerMessage)}
           </p>
         </div>
         <label className="flex items-center gap-2 text-sm text-muted">
@@ -153,34 +164,34 @@ export function EmailSettingsForm({
             onChange={(event) => setSetting({ ...setting, enabled: event.target.checked })}
             className="h-4 w-4 accent-moss"
           />
-          启用
+          {t.emailSettings.enabled}
         </label>
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
         <label className="space-y-2 text-sm font-medium text-ink">
-          SMTP 授权码
+          {t.emailSettings.authCode}
           <Input
             type="password"
             value={authCode}
             onChange={(event) => setAuthCode(event.target.value)}
             placeholder={
               integration?.secretConfigured
-                ? "已保存授权码，留空则不替换"
-                : "QQ 邮箱 SMTP 授权码，不是登录密码"
+                ? t.emailSettings.authSavedPlaceholder
+                : t.emailSettings.authPlaceholder
             }
           />
         </label>
         <label className="space-y-2 text-sm font-medium text-ink">
-          发件人
+          {t.emailSettings.sender}
           <Input
             value={from}
             onChange={(event) => setFrom(event.target.value)}
-            placeholder="你的QQ号@qq.com"
+            placeholder={t.emailSettings.senderPlaceholder}
           />
         </label>
         <label className="space-y-2 text-sm font-medium text-ink">
-          SMTP 服务器
+          {t.emailSettings.smtpHost}
           <Input
             value={smtpHost}
             onChange={(event) => setSmtpHost(event.target.value)}
@@ -188,7 +199,7 @@ export function EmailSettingsForm({
           />
         </label>
         <label className="space-y-2 text-sm font-medium text-ink">
-          SMTP 端口
+          {t.emailSettings.smtpPort}
           <Input
             inputMode="numeric"
             value={smtpPort}
@@ -197,7 +208,7 @@ export function EmailSettingsForm({
           />
         </label>
         <label className="space-y-2 text-sm font-medium text-ink">
-          收件邮箱
+          {t.emailSettings.recipient}
           <Input
             type="email"
             value={setting.recipientEmail}
@@ -206,7 +217,7 @@ export function EmailSettingsForm({
           />
         </label>
         <label className="space-y-2 text-sm font-medium text-ink">
-          发送时间
+          {t.emailSettings.sendTime}
           <Input
             type="time"
             value={setting.sendTime}
@@ -214,7 +225,7 @@ export function EmailSettingsForm({
           />
         </label>
         <label className="space-y-2 text-sm font-medium text-ink">
-          时区
+          {t.emailSettings.timezone}
           <Select
             value={setting.timezone}
             onChange={(event) => setSetting({ ...setting, timezone: event.target.value })}
@@ -230,12 +241,12 @@ export function EmailSettingsForm({
             onChange={(event) => setSetting({ ...setting, watchlistOnly: event.target.checked })}
             className="h-4 w-4 accent-moss"
           />
-          只推送自选股相关新闻
+          {t.emailSettings.watchlistOnly}
         </label>
       </div>
 
       <div className="mt-5">
-        <div className="text-sm font-medium text-ink">关注市场</div>
+        <div className="text-sm font-medium text-ink">{t.emailSettings.markets}</div>
         <div className="mt-2 flex flex-wrap gap-2">
           {(["US", "HK", "CN", "JP"] as const).map((market) => (
             <Button
@@ -245,7 +256,7 @@ export function EmailSettingsForm({
               size="sm"
               onClick={() => toggleMarket(market)}
             >
-              {market === "US" ? "美股" : market === "HK" ? "港股" : market === "CN" ? "A股" : "日股"}
+              {t.common.markets[market]}
             </Button>
           ))}
         </div>
@@ -259,29 +270,29 @@ export function EmailSettingsForm({
           onClick={() => void saveProvider()}
         >
           <Save className="h-4 w-4" />
-          保存邮件连接
+          {t.emailSettings.saveProvider}
         </Button>
         <Button
           type="button"
           variant="secondary"
           disabled={saving || sending}
-          onClick={() => void sendMail("/api/digests/send-test", "正在发送测试邮件。")}
+          onClick={() => void sendMail("/api/digests/send-test", t.emailSettings.sendingTest)}
         >
           <Mail className="h-4 w-4" />
-          测试发送
+          {t.emailSettings.testSend}
         </Button>
         <Button
           type="button"
           variant="secondary"
           disabled={saving || sending}
-          onClick={() => void sendMail("/api/digests/send", "正在发送今日摘要。")}
+          onClick={() => void sendMail("/api/digests/send", t.emailSettings.sendingToday)}
         >
           <Send className="h-4 w-4" />
-          发送今日
+          {t.emailSettings.sendToday}
         </Button>
         <Button type="submit" disabled={saving}>
           <Save className="h-4 w-4" />
-          保存设置
+          {t.emailSettings.saveSettings}
         </Button>
       </div>
     </form>

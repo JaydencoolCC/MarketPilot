@@ -42,9 +42,9 @@ function SettingsPageContent({
       </div>
       <header className="mb-5 mt-4">
         <p className="text-sm font-medium text-moss">{t.common.settings}</p>
-        <h1 className="mt-1 text-2xl font-semibold text-ink md:text-3xl">连接服务，保留你的节奏</h1>
+        <h1 className="mt-1 text-2xl font-semibold text-ink md:text-3xl">{t.settings.title}</h1>
         <p className="mt-2 text-sm leading-6 text-muted">
-          API Key 和 SMTP 授权码可以在这里配置，但不会回显完整内容；未配置真实服务时，系统会直接提示缺少配置。
+          {t.settings.description}
         </p>
       </header>
       <SettingsCenter

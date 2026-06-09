@@ -21,14 +21,19 @@ describe("mock providers", () => {
 
   it("generates a digest with sections", async () => {
     const quotes = await new MockQuoteProvider().getQuotes(["AAPL.US"]);
+    const indexQuotes = await new MockQuoteProvider().getQuotes(["^GSPC", "^IXIC", "^N225"]);
     const articles = await new MockNewsProvider().fetchMarketNews({ symbols: ["AAPL.US"] });
     const digest = await new MockModelProvider().generateDigest({
       watchlist: [],
       quotes,
+      indexQuotes,
       articles,
     });
     expect(digest.title).toContain("财经摘要");
     expect(digest.sections.length).toBeGreaterThanOrEqual(3);
+    expect(digest.sections[1]?.heading).toBe("主要指数");
+    expect(digest.sections[1]?.body).toContain("^GSPC");
+    expect(digest.sections[1]?.body).not.toContain("AAPL.US");
   });
 
   it("uses recent chat history in mock chat responses", async () => {

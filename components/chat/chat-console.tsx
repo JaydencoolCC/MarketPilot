@@ -8,9 +8,10 @@ import { Input } from "@/components/ui/input";
 import { useLocale } from "@/components/i18n/locale-provider";
 import type { ChatMessage } from "@/lib/domain/types";
 import { cn } from "@/lib/utils/cn";
+import { localizedApiMessage } from "@/lib/i18n";
 
 export function ChatConsole() {
-  const { t } = useLocale();
+  const { locale, t } = useLocale();
   const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -84,11 +85,11 @@ export function ChatConsole() {
 
       if (!response.ok) {
         const payload = (await response.json()) as { error?: { message: string } };
-        throw new Error(payload.error?.message ?? "模型暂时不可用，可以稍后重试。");
+        throw new Error(localizedApiMessage(locale, payload.error?.message, t.chat.unavailable));
       }
 
       if (!response.body) {
-        throw new Error("模型暂时不可用，可以稍后重试。");
+        throw new Error(t.chat.unavailable);
       }
 
       const reader = response.body.getReader();

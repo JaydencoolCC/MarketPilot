@@ -5,16 +5,19 @@ import { Check, Info, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useLocale } from "@/components/i18n/locale-provider";
 import type { FundHolding, FundRow, FundSearchResult, FundSnapshot } from "@/lib/domain/types";
 import { fundDetailUrl } from "@/lib/domain/xueqiu";
 import { cn } from "@/lib/utils/cn";
 import { formatClockTime, formatCurrency, formatPercent } from "@/lib/utils/format";
+import { dictionary, localizedApiMessage } from "@/lib/i18n";
 
 type FundTableProps = {
   initialRows: FundRow[];
 };
 
 export function FundTable({ initialRows }: FundTableProps) {
+  const { locale, t } = useLocale();
   const [rows, setRows] = useState(initialRows);
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<FundSearchResult[]>([]);
@@ -22,7 +25,7 @@ export function FundTable({ initialRows }: FundTableProps) {
   const [filter, setFilter] = useState<"ALL" | "mutual_fund" | "etf">("ALL");
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
-  const [message, setMessage] = useState("我会整理基金净值、ETF 行情和数据状态。");
+  const [message, setMessage] = useState(t.fundTable.initialMessage);
   const [selectedRow, setSelectedRow] = useState<FundRow | null>(null);
   const pollingRef = useRef(false);
   const rowsRef = useRef(initialRows);
@@ -35,6 +38,14 @@ export function FundTable({ initialRows }: FundTableProps) {
   useEffect(() => {
     rowsRef.current = rows;
   }, [rows]);
+
+  useEffect(() => {
+    setMessage((current) =>
+      current === dictionary[locale === "zh" ? "en" : "zh"].fundTable.initialMessage
+        ? t.fundTable.initialMessage
+        : current,
+    );
+  }, [locale, t.fundTable.initialMessage]);
 
   const mergeSnapshots = useCallback((snapshots: FundSnapshot[]) => {
     const snapshotBySymbol = new Map(snapshots.map((snapshot) => [snapshot.symbol, snapshot]));
@@ -81,12 +92,12 @@ export function FundTable({ initialRows }: FundTableProps) {
         if (!current) return null;
         return payload.data?.find((row) => row.id === current.id) ?? null;
       });
-      if (options?.updateMessage) setMessage("已更新基金状态。");
+      if (options?.updateMessage) setMessage(t.fundTable.refreshed);
     } finally {
       pollingRef.current = false;
       if (options?.showLoading) setLoading(false);
     }
-  }, []);
+  }, [t.fundTable.refreshed]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -110,11 +121,11 @@ export function FundTable({ initialRows }: FundTableProps) {
       });
       const payload = (await response.json()) as { data?: FundSearchResult[]; error?: { message: string } };
       if (!response.ok) {
-        setMessage(payload.error?.message ?? "搜索暂时不可用。");
+        setMessage(localizedApiMessage(locale, payload.error?.message, t.fundTable.searchFailed));
         return;
       }
       setSuggestions(payload.data ?? []);
-      if (!payload.data?.length) setMessage("没有找到匹配基金，可以直接输入基金代码或 ETF 代码。");
+      if (!payload.data?.length) setMessage(t.fundTable.noMatch);
     } finally {
       setSearching(false);
     }
@@ -124,7 +135,7 @@ export function FundTable({ initialRows }: FundTableProps) {
     event.preventDefault();
     const symbol = selectedFund?.normalizedSymbol ?? query.trim();
     if (!symbol) {
-      setMessage("请输入基金代码或 ETF 代码。");
+      setMessage(t.fundTable.enterSymbol);
       return;
     }
     setLoading(true);
@@ -140,14 +151,14 @@ export function FundTable({ initialRows }: FundTableProps) {
         error?: { message: string };
       };
       if (!response.ok) {
-        setMessage(payload.error?.message ?? "添加失败，请稍后重试。");
+        setMessage(localizedApiMessage(locale, payload.error?.message, t.fundTable.addFailed));
         return;
       }
       setRows(payload.funds ?? []);
       setQuery("");
       setSuggestions([]);
       setSelectedFund(null);
-      setMessage(`已添加 ${payload.data?.name ?? symbol}，我会开始跟踪它。`);
+      setMessage(t.fundTable.added(payload.data?.name ?? symbol));
     } finally {
       setLoading(false);
     }
@@ -159,12 +170,12 @@ export function FundTable({ initialRows }: FundTableProps) {
       const response = await fetch(`/api/funds/${id}`, { method: "DELETE" });
       const payload = (await response.json()) as { data?: FundRow[]; error?: { message: string } };
       if (!response.ok) {
-        setMessage(payload.error?.message ?? "删除失败，请稍后重试。");
+        setMessage(localizedApiMessage(locale, payload.error?.message, t.fundTable.deleteFailed));
         return;
       }
       setRows(payload.data ?? []);
       setSelectedRow((current) => (current?.id === id ? null : current));
-      setMessage("已从自选基金中移除。");
+      setMessage(t.fundTable.removed);
     } finally {
       setLoading(false);
     }
@@ -174,14 +185,14 @@ export function FundTable({ initialRows }: FundTableProps) {
     setSelectedFund(fund);
     setQuery(fund.normalizedSymbol);
     setSuggestions([]);
-    setMessage(`已选择 ${fund.name}，点击添加即可加入自选基金。`);
+    setMessage(t.fundTable.selected(fund.name));
   }
 
   return (
     <section className="relative rounded-lg border border-line bg-white/85 shadow-soft">
       <div className="flex flex-col gap-4 border-b border-line p-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-ink">自选基金</h2>
+          <h2 className="text-lg font-semibold text-ink">{t.fundTable.title}</h2>
           <p className="mt-1 text-sm text-muted">{message}</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -192,10 +203,10 @@ export function FundTable({ initialRows }: FundTableProps) {
               size="sm"
               onClick={() => setFilter(item)}
             >
-              {item === "ALL" ? "全部" : item === "mutual_fund" ? "公募基金" : "ETF"}
+              {item === "ALL" ? t.common.all : t.common.fundType[item]}
             </Button>
           ))}
-          <Button variant="secondary" size="icon" aria-label="刷新基金" onClick={() => fetchRows({ showLoading: true, updateMessage: true })}>
+          <Button variant="secondary" size="icon" aria-label={t.fundTable.refreshAria} onClick={() => fetchRows({ showLoading: true, updateMessage: true })}>
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           </Button>
         </div>
@@ -207,8 +218,8 @@ export function FundTable({ initialRows }: FundTableProps) {
           <Input
             value={query}
             onChange={(event) => void searchFunds(event.target.value)}
-            placeholder="搜索基金或 ETF，例如 110022、510300、SPY、2800.HK"
-            aria-label="搜索基金"
+            placeholder={t.fundTable.searchPlaceholder}
+            aria-label={t.fundTable.searchAria}
             className="pl-9"
             autoComplete="off"
           />
@@ -228,7 +239,7 @@ export function FundTable({ initialRows }: FundTableProps) {
                     <span className="block text-sm font-semibold text-ink">{fund.name}</span>
                     <span className="mt-1 block text-xs text-muted">{fund.normalizedSymbol}</span>
                   </span>
-                  <Badge tone="blue">{fund.type === "mutual_fund" ? "公募基金" : "ETF"}</Badge>
+                  <Badge tone="blue">{t.common.fundType[fund.type]}</Badge>
                 </button>
               ))}
             </div>
@@ -236,12 +247,12 @@ export function FundTable({ initialRows }: FundTableProps) {
         </div>
         <Button type="submit" disabled={loading || searching || !query.trim()}>
           <Plus className="h-4 w-4" />
-          {selectedFund ? "添加" : searching ? "搜索中" : "直接添加"}
+          {selectedFund ? t.common.add : searching ? t.common.searching : t.common.directAdd}
         </Button>
         {selectedFund ? (
           <div className="md:col-span-2 flex items-center gap-2 text-sm text-moss">
             <Check className="h-4 w-4" />
-            已选择 {selectedFund.name} · {selectedFund.normalizedSymbol}
+            {t.fundTable.selectedInline(selectedFund.name, selectedFund.normalizedSymbol)}
           </div>
         ) : null}
       </form>
@@ -251,9 +262,9 @@ export function FundTable({ initialRows }: FundTableProps) {
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-moss/10 text-moss">
             <Plus className="h-5 w-5" />
           </div>
-          <h3 className="mt-4 text-base font-semibold text-ink">还没有自选基金</h3>
+          <h3 className="mt-4 text-base font-semibold text-ink">{t.fundTable.emptyTitle}</h3>
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">
-            添加基金或 ETF 后，我会开始整理净值、价格和最新状态。可以先试试 110022、510300 或 SPY。
+            {t.fundTable.emptyBody}
           </p>
         </div>
       ) : (
@@ -261,16 +272,16 @@ export function FundTable({ initialRows }: FundTableProps) {
           <table className="w-full min-w-[920px] border-collapse text-left text-sm">
             <thead className="bg-surface/80 text-xs uppercase tracking-normal text-muted">
               <tr>
-                <th className="px-4 py-3 font-medium">名称</th>
-                <th className="px-4 py-3 font-medium">代码</th>
-                <th className="px-4 py-3 font-medium">类型</th>
-                <th className="px-4 py-3 font-medium">最新值</th>
-                <th className="px-4 py-3 font-medium">估值</th>
-                <th className="px-4 py-3 font-medium">涨跌幅</th>
-                <th className="px-4 py-3 font-medium">更新时间</th>
-                <th className="px-4 py-3 font-medium">数据</th>
-                <th className="px-4 py-3 font-medium">来源</th>
-                <th className="px-4 py-3 text-right font-medium">操作</th>
+                <th className="px-4 py-3 font-medium">{t.common.name}</th>
+                <th className="px-4 py-3 font-medium">{t.common.symbol}</th>
+                <th className="px-4 py-3 font-medium">{t.common.type}</th>
+                <th className="px-4 py-3 font-medium">{t.fundTable.columns.latestValue}</th>
+                <th className="px-4 py-3 font-medium">{t.fundTable.columns.estimate}</th>
+                <th className="px-4 py-3 font-medium">{t.fundTable.columns.changePercent}</th>
+                <th className="px-4 py-3 font-medium">{t.common.updateTime}</th>
+                <th className="px-4 py-3 font-medium">{t.common.data}</th>
+                <th className="px-4 py-3 font-medium">{t.common.source}</th>
+                <th className="px-4 py-3 text-right font-medium">{t.common.actions}</th>
               </tr>
             </thead>
             <tbody>
@@ -287,10 +298,10 @@ export function FundTable({ initialRows }: FundTableProps) {
                     </td>
                     <td className="px-4 py-4 font-mono text-xs text-muted">{row.normalizedSymbol}</td>
                     <td className="px-4 py-4">
-                      <Badge tone="blue">{row.type === "mutual_fund" ? "公募基金" : "ETF"}</Badge>
+                      <Badge tone="blue">{t.common.fundType[row.type]}</Badge>
                     </td>
                     <td className="px-4 py-4 font-medium text-ink">
-                      {snapshot ? formatCurrency(snapshot.netValue, snapshot.currency) : "等待更新"}
+                      {snapshot ? formatCurrency(snapshot.netValue, snapshot.currency) : t.common.waitUpdate}
                     </td>
                     <td className="px-4 py-4 text-muted">
                       {snapshot?.estimateValue ? formatCurrency(snapshot.estimateValue, snapshot.currency) : "-"}
@@ -303,7 +314,7 @@ export function FundTable({ initialRows }: FundTableProps) {
                     </td>
                     <td className="px-4 py-4">
                       <Badge tone={row.dataStatus === "ok" ? "green" : row.dataStatus === "error" ? "red" : "amber"}>
-                        {row.dataStatus === "ok" ? "正常" : row.dataStatus === "error" ? "失败" : "待更新"}
+                        {t.common.dataStatus[row.dataStatus]}
                       </Badge>
                     </td>
                     <td className="px-4 py-4">
@@ -315,7 +326,7 @@ export function FundTable({ initialRows }: FundTableProps) {
                           href={fundDetailUrl(row.normalizedSymbol)}
                           target="_blank"
                           rel="noreferrer"
-                          aria-label="查看详情"
+                          aria-label={t.common.details}
                           className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted transition hover:bg-black/5 hover:text-ink"
                           onClick={(event) => {
                             event.stopPropagation();
@@ -326,7 +337,7 @@ export function FundTable({ initialRows }: FundTableProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label="删除"
+                          aria-label={t.common.delete}
                           onClick={(event) => {
                             event.stopPropagation();
                             removeFund(row.id);
@@ -353,10 +364,6 @@ function changeColorClass(changePercent?: number) {
   return changePercent > 0 ? "text-coral" : "text-moss";
 }
 
-function fundTypeLabel(type: FundRow["type"]) {
-  return type === "mutual_fund" ? "公募基金" : "ETF";
-}
-
 function FundDetailDrawer({
   row,
   onClose,
@@ -364,11 +371,12 @@ function FundDetailDrawer({
   row: FundRow;
   onClose: () => void;
 }) {
+  const { locale, t } = useLocale();
   const snapshot = row.snapshot;
   const [holdingsState, setHoldingsState] = useState<{
     holdings: FundHolding[];
     status: string;
-  }>({ holdings: [], status: "正在读取基金组成成分。" });
+  }>({ holdings: [], status: t.fundTable.drawer.loadingHoldings });
 
   useEffect(() => {
     let active = true;
@@ -380,18 +388,21 @@ function FundDetailDrawer({
         const payload = (await response.json()) as { data?: FundHolding[]; error?: { message: string } };
         if (!active) return;
         if (!response.ok) {
-          setHoldingsState({ holdings: [], status: payload.error?.message ?? "基金组成成分暂时不可用。" });
+          setHoldingsState({
+            holdings: [],
+            status: localizedApiMessage(locale, payload.error?.message, t.fundTable.drawer.holdingsFailed),
+          });
           return;
         }
         const holdings = payload.data ?? [];
         setHoldingsState({
           holdings,
           status: holdings.length
-            ? `前 ${holdings.length} 大持仓，${holdings[0]?.asOfDate ? `截止 ${holdings[0].asOfDate}` : "按数据源最新披露"}。`
-            : "数据源暂未返回这只基金的组成成分。",
+            ? t.fundTable.drawer.holdingsFound(holdings.length, holdings[0]?.asOfDate)
+            : t.fundTable.drawer.holdingsEmpty,
         });
       } catch {
-        if (active) setHoldingsState({ holdings: [], status: "基金组成成分暂时不可用，稍后可以再试。" });
+        if (active) setHoldingsState({ holdings: [], status: t.fundTable.drawer.holdingsRetry });
       }
     }
 
@@ -399,7 +410,7 @@ function FundDetailDrawer({
     return () => {
       active = false;
     };
-  }, [row.normalizedSymbol]);
+  }, [locale, row.normalizedSymbol, t.fundTable.drawer]);
 
   return (
     <div className="fixed inset-0 z-40 bg-ink/20" onClick={onClose}>
@@ -409,67 +420,66 @@ function FundDetailDrawer({
       >
         <div className="flex items-start justify-between gap-4 border-b border-line p-5">
           <div>
-            <p className="text-sm font-medium text-moss">{fundTypeLabel(row.type)}</p>
+            <p className="text-sm font-medium text-moss">{t.common.fundType[row.type]}</p>
             <h3 className="mt-1 text-xl font-semibold text-ink">{row.name}</h3>
             <p className="mt-1 font-mono text-xs text-muted">{row.normalizedSymbol}</p>
           </div>
-          <Button variant="ghost" size="icon" aria-label="关闭详情" onClick={onClose}>
+          <Button variant="ghost" size="icon" aria-label={t.common.close} onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto p-5">
           <section>
-            <h4 className="text-sm font-semibold text-ink">基本信息</h4>
+            <h4 className="text-sm font-semibold text-ink">{t.fundTable.drawer.basicInfo}</h4>
             <div className="mt-3 grid grid-cols-2 gap-3">
-              <Metric label="类型" value={fundTypeLabel(row.type)} />
-              <Metric label="代码" value={row.normalizedSymbol} />
-              <Metric label="市场" value={row.market ?? "净值型基金"} />
-              <Metric label="币种" value={row.currency} />
+              <Metric label={t.common.type} value={t.common.fundType[row.type]} />
+              <Metric label={t.common.symbol} value={row.normalizedSymbol} />
+              <Metric label={t.common.market} value={row.market ? t.common.markets[row.market] : t.fundTable.drawer.netValueFund} />
+              <Metric label={t.fundTable.drawer.currency} value={row.currency} />
             </div>
           </section>
 
           <section>
-            <h4 className="text-sm font-semibold text-ink">最新状态</h4>
+            <h4 className="text-sm font-semibold text-ink">{t.fundTable.drawer.latestStatus}</h4>
             <div className="mt-3 grid grid-cols-2 gap-3">
               <Metric
-                label={row.type === "mutual_fund" ? "最新净值" : "最新价格"}
-                value={snapshot ? formatCurrency(snapshot.netValue, snapshot.currency) : "等待更新"}
+                label={row.type === "mutual_fund" ? t.fundTable.drawer.latestNetValue : t.fundTable.drawer.latestPrice}
+                value={snapshot ? formatCurrency(snapshot.netValue, snapshot.currency) : t.common.waitUpdate}
               />
               <Metric
-                label="涨跌幅"
+                label={t.fundTable.columns.changePercent}
                 value={snapshot ? formatPercent(snapshot.changePercent) : "-"}
                 className={changeColorClass(snapshot?.changePercent)}
               />
               <Metric
-                label="估值"
+                label={t.fundTable.columns.estimate}
                 value={snapshot?.estimateValue ? formatCurrency(snapshot.estimateValue, snapshot.currency) : "-"}
               />
               <Metric
-                label="更新时间"
+                label={t.common.updateTime}
                 value={snapshot ? formatClockTime(snapshot.fetchedAt ?? snapshot.quoteTime) : "-"}
               />
             </div>
           </section>
 
           <section className="rounded-md border border-line bg-surface/60 p-4">
-            <h4 className="text-sm font-semibold text-ink">数据来源</h4>
+            <h4 className="text-sm font-semibold text-ink">{t.fundTable.drawer.dataSource}</h4>
             <p className="mt-2 text-sm leading-6 text-muted">
-              当前来源：{snapshot?.provider ?? "等待更新"}。数据状态：
-              {row.dataStatus === "ok" ? "正常" : row.dataStatus === "error" ? "失败" : "待更新"}。
+              {t.fundTable.drawer.sourceLine(snapshot?.provider ?? t.common.waitUpdate, t.common.dataStatus[row.dataStatus])}
               {snapshot?.errorMessage ? ` ${snapshot.errorMessage}` : ""}
             </p>
           </section>
 
           <section className="rounded-md border border-line bg-surface/60 p-4">
-            <h4 className="text-sm font-semibold text-ink">基金组成成分</h4>
+            <h4 className="text-sm font-semibold text-ink">{t.fundTable.drawer.holdings}</h4>
             <p className="mt-2 text-sm leading-6 text-muted">{holdingsState.status}</p>
             {holdingsState.holdings.length ? (
               <div className="mt-3 overflow-hidden rounded-md border border-line bg-white">
                 <div className="grid grid-cols-[36px_1fr_64px] gap-2 border-b border-line bg-surface/70 px-3 py-2 text-xs font-medium text-muted">
-                  <span>序号</span>
-                  <span>名称</span>
-                  <span className="text-right">占比</span>
+                  <span>{t.fundTable.drawer.rank}</span>
+                  <span>{t.common.name}</span>
+                  <span className="text-right">{t.fundTable.drawer.weight}</span>
                 </div>
                 <div className="divide-y divide-line/70">
                   {holdingsState.holdings.map((holding) => (

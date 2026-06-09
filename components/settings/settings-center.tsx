@@ -17,12 +17,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmailSettingsForm } from "@/components/settings/email-settings-form";
+import { useLocale } from "@/components/i18n/locale-provider";
 import type {
   EmailDigestSetting,
   MarketDataNetworkSetting,
   PublicIntegrationSetting,
 } from "@/lib/domain/types";
 import { cn } from "@/lib/utils/cn";
+import { localizedApiMessage } from "@/lib/i18n";
 
 type SettingsCenterProps = {
   initialEmailSetting: EmailDigestSetting;
@@ -31,18 +33,19 @@ type SettingsCenterProps = {
 };
 
 const navItems = [
-  { href: "#status", label: "连接状态" },
-  { href: "#chat", label: "AI Chat" },
-  { href: "#email", label: "每日邮件" },
-  { href: "#market", label: "行情与新闻" },
-  { href: "#security", label: "安全" },
-];
+  { href: "#status", key: "status" },
+  { href: "#chat", key: "chat" },
+  { href: "#email", key: "email" },
+  { href: "#market", key: "market" },
+  { href: "#security", key: "security" },
+] as const;
 
 export function SettingsCenter({
   initialEmailSetting,
   initialIntegrations,
   initialMarketDataNetwork,
 }: SettingsCenterProps) {
+  const { t } = useLocale();
   const [integrations, setIntegrations] = useState(initialIntegrations);
   const [marketDataNetwork, setMarketDataNetwork] = useState(initialMarketDataNetwork);
 
@@ -64,7 +67,7 @@ export function SettingsCenter({
               href={item.href}
               className="block rounded-md px-3 py-2 text-sm font-medium text-muted hover:bg-moss/10 hover:text-ink"
             >
-              {item.label}
+              {t.settings.nav[item.key]}
             </a>
           ))}
         </nav>
@@ -76,17 +79,17 @@ export function SettingsCenter({
             <div>
               <div className="flex items-center gap-2 text-sm font-medium text-moss">
                 <Wifi className="h-4 w-4" />
-                连接状态
+                {t.settings.nav.status}
               </div>
-              <h2 className="mt-2 text-lg font-semibold text-ink">服务是否准备好，一眼看清</h2>
+              <h2 className="mt-2 text-lg font-semibold text-ink">{t.settings.statusTitle}</h2>
               <p className="mt-1 text-sm leading-6 text-muted">
-                这里显示当前真实连接状态。连接失败时，我会说明缺什么。
+                {t.settings.statusBody}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               {integrations.map((item) => (
                 <Badge key={item.kind} tone={item.status === "failed" ? "red" : "green"}>
-                  {item.label} {item.status === "success" ? "已连接" : item.status === "failed" ? "未配置" : "待测试"}
+                  {providerLabel(item, t)} {item.status === "success" ? t.common.sourceStatus.success : item.status === "failed" ? t.common.sourceStatus.failed : t.common.sourceStatus.pending}
                 </Badge>
               ))}
             </div>
@@ -126,9 +129,9 @@ export function SettingsCenter({
               <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-ink">安全边界</h2>
+            <h2 className="text-lg font-semibold text-ink">{t.settings.securityTitle}</h2>
               <p className="mt-2 text-sm leading-6 text-muted">
-                API Key 和 SMTP 授权码保存在本机配置文件中。前端只拿到脱敏状态，不会拿到原始密钥；日志、测试和文档也不能写入真实密钥。
+                {t.settings.securityBody}
               </p>
             </div>
           </div>
@@ -145,8 +148,9 @@ function MarketDataNetworkCard({
   setting: MarketDataNetworkSetting;
   onUpdate: (setting: MarketDataNetworkSetting) => void;
 }) {
+  const { locale, t } = useLocale();
   const [proxyUrl, setProxyUrl] = useState(setting.proxyUrl ?? "");
-  const [message, setMessage] = useState(setting.proxyUrl ? "已保存代理地址。" : "未配置代理，金融数据请求会先直连。");
+  const [message, setMessage] = useState(setting.proxyUrl ? t.settings.proxySavedInitial : t.settings.proxyUnconfiguredInitial);
   const [busy, setBusy] = useState(false);
 
   async function saveProxy(event: React.FormEvent<HTMLFormElement>) {
@@ -163,12 +167,12 @@ function MarketDataNetworkCard({
         error?: { message: string };
       };
       if (!response.ok || !payload.data) {
-        setMessage(payload.error?.message ?? "保存代理失败。");
+        setMessage(localizedApiMessage(locale, payload.error?.message, t.settings.proxySaveFailed));
         return;
       }
       onUpdate(payload.data);
       setProxyUrl(payload.data.proxyUrl ?? "");
-      setMessage(payload.data.proxyUrl ? "已保存。直连失败时会用代理重试行情与新闻请求。" : "已清除代理。");
+      setMessage(payload.data.proxyUrl ? t.settings.proxySaved : t.settings.proxyCleared);
     } finally {
       setBusy(false);
     }
@@ -191,7 +195,7 @@ function MarketDataNetworkCard({
         onUpdate(payload.data);
         setProxyUrl(payload.data.proxyUrl ?? "");
       }
-      setMessage(payload.result?.message ?? payload.error?.message ?? "代理检测完成。");
+      setMessage(localizedApiMessage(locale, payload.result?.message ?? payload.error?.message, t.settings.proxyTestDone));
     } finally {
       setBusy(false);
     }
@@ -206,29 +210,29 @@ function MarketDataNetworkCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-ink">行情与新闻代理</h2>
+              <h2 className="text-lg font-semibold text-ink">{t.settings.proxyTitle}</h2>
               <p className="mt-1 text-sm leading-6 text-muted">
-                直连金融数据源失败时，会用这里的 HTTP 代理重试；不会影响 AI Chat 或邮件。
+                {t.settings.proxyBody}
               </p>
             </div>
-            <Badge tone={setting.proxyUrl ? "green" : "amber"}>{setting.proxyUrl ? "已配置" : "未配置"}</Badge>
+            <Badge tone={setting.proxyUrl ? "green" : "amber"}>{setting.proxyUrl ? t.settings.configured : t.settings.unconfigured}</Badge>
           </div>
           <form onSubmit={saveProxy} className="mt-4 grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
             <label className="space-y-2 text-sm font-medium text-ink">
-              代理地址
+              {t.settings.proxyUrl}
               <Input
                 value={proxyUrl}
                 onChange={(event) => setProxyUrl(event.target.value)}
-                placeholder="http://127.0.0.1:7897 或 7897"
+                placeholder={t.settings.proxyPlaceholder}
               />
             </label>
             <Button type="button" variant="secondary" onClick={testProxy} disabled={busy}>
               <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
-              {busy ? "检测中" : "检测代理"}
+              {busy ? t.settings.testing : t.settings.testProxy}
             </Button>
             <Button type="submit" disabled={busy}>
               <Save className="h-4 w-4" />
-              保存代理
+              {t.settings.saveProxy}
             </Button>
           </form>
           <p className="mt-3 text-sm text-muted">{message}</p>
@@ -245,6 +249,7 @@ function ProviderStatusCard({
   integration: PublicIntegrationSetting;
   onUpdate: (integration: PublicIntegrationSetting) => void;
 }) {
+  const { t } = useLocale();
   const [testing, setTesting] = useState(false);
 
   async function testProvider() {
@@ -269,16 +274,16 @@ function ProviderStatusCard({
     <div className="rounded-lg border border-line bg-surface/50 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-ink">{integration.label}</div>
-          <p className="mt-1 text-xs leading-5 text-muted">{integration.statusMessage}</p>
+          <div className="text-sm font-semibold text-ink">{providerLabel(integration, t)}</div>
+          <p className="mt-1 text-xs leading-5 text-muted">{providerStatusMessage(integration, t)}</p>
         </div>
         <StatusDot status={integration.status} />
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
-        <Badge tone={integration.source === "unconfigured" ? "amber" : "green"}>{sourceLabel(integration.source)}</Badge>
+        <Badge tone={integration.source === "unconfigured" ? "amber" : "green"}>{sourceLabel(integration.source, t)}</Badge>
         <Button size="sm" variant="secondary" onClick={testProvider} disabled={testing}>
           <RefreshCw className={cn("h-4 w-4", testing && "animate-spin")} />
-          {testing ? "检测中" : "检测连接"}
+          {testing ? t.settings.testing : t.settings.testConnection}
         </Button>
       </div>
     </div>
@@ -292,6 +297,7 @@ function ModelSettingsCard({
   integration: PublicIntegrationSetting;
   onUpdate: (integration: PublicIntegrationSetting) => void;
 }) {
+  const { locale, t } = useLocale();
   const [baseUrl, setBaseUrl] = useState(integration.baseUrl ?? "");
   const [modelName, setModelName] = useState(integration.modelName ?? "");
   const [apiKey, setApiKey] = useState("");
@@ -301,14 +307,14 @@ function ModelSettingsCard({
 
   const savedKeyDisplay = integration.secretConfigured ? "********" : "";
   const keyHint = useMemo(() => {
-    if (!integration.secretConfigured) return "还没有保存 API Key";
-    return integration.secretPreview ? `已保存 ${integration.secretPreview}` : "已通过环境变量配置";
-  }, [integration.secretConfigured, integration.secretPreview]);
+    if (!integration.secretConfigured) return t.settings.savedKeyEmpty;
+    return integration.secretPreview ? t.settings.savedKeyPreview(integration.secretPreview) : t.settings.savedKeyEnv;
+  }, [integration.secretConfigured, integration.secretPreview, t.settings]);
 
   async function saveModel(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if ((editingApiKey || !integration.secretConfigured) && !apiKey.trim()) {
-      setMessage("请输入 API Key 后再保存。");
+      setMessage(t.settings.enterApiKey);
       return;
     }
 
@@ -328,13 +334,13 @@ function ModelSettingsCard({
         error?: { message: string };
       };
       if (!response.ok || !payload.data) {
-        setMessage(payload.error?.message ?? "保存失败，请检查模型配置。");
+        setMessage(localizedApiMessage(locale, payload.error?.message, t.settings.modelSaveFailed));
         return;
       }
       onUpdate(payload.data);
       setApiKey("");
       setEditingApiKey(false);
-      setMessage("已保存。API Key 只会以脱敏状态显示。");
+      setMessage(t.settings.modelSaved);
     } finally {
       setBusy(false);
     }
@@ -350,7 +356,7 @@ function ModelSettingsCard({
         error?: { message: string };
       };
       if (payload.data) onUpdate(payload.data);
-      setMessage(payload.result?.message ?? payload.error?.message ?? "模型连接测试完成。");
+      setMessage(localizedApiMessage(locale, payload.result?.message ?? payload.error?.message, t.settings.modelTestDone));
     } finally {
       setBusy(false);
     }
@@ -364,9 +370,9 @@ function ModelSettingsCard({
             <Bot className="h-4 w-4" />
             AI Chat
           </div>
-          <h2 className="mt-2 text-lg font-semibold text-ink">连接你的模型 API</h2>
+          <h2 className="mt-2 text-lg font-semibold text-ink">{t.settings.modelTitle}</h2>
           <p className="mt-1 text-sm leading-6 text-muted">
-            支持 OpenAI-compatible API。保存后我只显示脱敏状态，不回显完整密钥。
+            {t.settings.modelBody}
           </p>
         </div>
         <Badge tone={integration.secretConfigured ? "green" : "amber"}>{keyHint}</Badge>
@@ -382,11 +388,11 @@ function ModelSettingsCard({
           />
         </label>
         <label className="space-y-2 text-sm font-medium text-ink">
-          模型名称
+          {t.settings.modelName}
           <Input
             value={modelName}
             onChange={(event) => setModelName(event.target.value)}
-            placeholder="gpt-4.1-mini 或你的模型名"
+            placeholder={t.settings.modelPlaceholder}
           />
         </label>
         <label className="space-y-2 text-sm font-medium text-ink md:col-span-2">
@@ -404,7 +410,7 @@ function ModelSettingsCard({
                 setApiKey("");
               }
             }}
-            placeholder="输入 API Key，保存后会显示为 ********"
+            placeholder={t.settings.apiKeyPlaceholder}
           />
         </label>
         <div className="md:col-span-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -412,11 +418,11 @@ function ModelSettingsCard({
           <div className="flex gap-2">
             <Button type="button" variant="secondary" onClick={testModel} disabled={busy}>
               <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
-              {busy ? "检测中" : "检测连接"}
+              {busy ? t.settings.testing : t.settings.testConnection}
             </Button>
             <Button type="submit" disabled={busy}>
               <Save className="h-4 w-4" />
-              保存 Chat 配置
+              {t.settings.saveChatConfig}
             </Button>
           </div>
         </div>
@@ -432,6 +438,7 @@ function MarketProviderCard({
   integration: PublicIntegrationSetting;
   onUpdate: (integration: PublicIntegrationSetting) => void;
 }) {
+  const { t } = useLocale();
   const [testing, setTesting] = useState(false);
   const Icon = integration.kind === "quote" ? Database : integration.kind === "news" ? Newspaper : Mail;
 
@@ -462,20 +469,20 @@ function MarketProviderCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-ink">{integration.label}</h2>
-              <p className="mt-1 text-sm leading-6 text-muted">{integration.description}</p>
+              <h2 className="text-lg font-semibold text-ink">{providerLabel(integration, t)}</h2>
+              <p className="mt-1 text-sm leading-6 text-muted">{providerDescription(integration, t)}</p>
             </div>
-            <Badge tone={integration.source === "unconfigured" ? "amber" : "green"}>{sourceLabel(integration.source)}</Badge>
+            <Badge tone={integration.source === "unconfigured" ? "amber" : "green"}>{sourceLabel(integration.source, t)}</Badge>
           </div>
-          <p className="mt-3 text-sm text-muted">{integration.statusMessage}</p>
+          <p className="mt-3 text-sm text-muted">{providerStatusMessage(integration, t)}</p>
           <div className="mt-4 flex items-center justify-between gap-3 rounded-md bg-surface/60 p-3">
             <div className="flex items-center gap-2 text-sm text-muted">
               <StatusDot status={integration.status} />
-              <span>{integration.status === "failed" ? "连接失败" : "可手动检测连接"}</span>
+              <span>{integration.status === "failed" ? t.settings.connectionFailed : t.settings.canTestManually}</span>
             </div>
             <Button size="sm" variant="secondary" onClick={testProvider} disabled={testing}>
               <RefreshCw className={cn("h-4 w-4", testing && "animate-spin")} />
-              {testing ? "检测中" : "检测连接"}
+              {testing ? t.settings.testing : t.settings.testConnection}
             </Button>
           </div>
         </div>
@@ -502,8 +509,30 @@ function StatusDot({
   );
 }
 
-function sourceLabel(source: PublicIntegrationSetting["source"]) {
-  if (source === "file") return "配置文件";
-  if (source === "env") return "环境变量";
-  return "未配置";
+function sourceLabel(source: PublicIntegrationSetting["source"], t: ReturnType<typeof useLocale>["t"]) {
+  if (source === "file") return t.common.sourceStatus.file;
+  if (source === "env") return t.common.sourceStatus.env;
+  return t.common.sourceStatus.unconfigured;
+}
+
+function providerLabel(integration: PublicIntegrationSetting, t: ReturnType<typeof useLocale>["t"]) {
+  if (t.common.settings !== "Settings") return integration.label;
+  if (integration.kind === "model") return "AI Chat";
+  if (integration.kind === "quote") return "Quotes";
+  if (integration.kind === "news") return "News";
+  if (integration.kind === "email") return "Email";
+  return integration.label;
+}
+
+function providerDescription(integration: PublicIntegrationSetting, t: ReturnType<typeof useLocale>["t"]) {
+  if (integration.kind === "quote") return t.dashboard.subtitles.stocks(integration.provider);
+  if (integration.kind === "news") return t.chatPreview.body;
+  if (integration.kind === "email") return t.emailSettings.readyMessage;
+  return integration.description;
+}
+
+function providerStatusMessage(integration: PublicIntegrationSetting, t: ReturnType<typeof useLocale>["t"]) {
+  if (integration.status === "success") return t.common.sourceStatus.success;
+  if (integration.status === "untested") return t.common.sourceStatus.pending;
+  return t.settings.connectionFailed;
 }

@@ -3,6 +3,7 @@ import type { ChatMessage, DigestPreview, NewsArticle, Quote, WatchlistItem } fr
 export type DigestPrompt = {
   watchlist: WatchlistItem[];
   quotes: Quote[];
+  indexQuotes: Quote[];
   articles: NewsArticle[];
 };
 

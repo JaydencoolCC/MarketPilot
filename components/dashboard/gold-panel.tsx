@@ -4,29 +4,22 @@ import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useLocale } from "@/components/i18n/locale-provider";
 import type { GoldHistory, GoldRange, GoldScope } from "@/lib/domain/types";
 import { cn } from "@/lib/utils/cn";
 import { formatCurrency, formatPercent } from "@/lib/utils/format";
+import { localizedApiMessage } from "@/lib/i18n";
 
-const scopes: Array<{ id: GoldScope; label: string }> = [
-  { id: "international", label: "国际金价" },
-  { id: "domestic", label: "人民币/克" },
-];
-
-const ranges: Array<{ id: GoldRange; label: string }> = [
-  { id: "1d", label: "1天" },
-  { id: "1m", label: "1月" },
-  { id: "3m", label: "3月" },
-  { id: "6m", label: "6月" },
-  { id: "1y", label: "1年" },
-];
+const scopes: GoldScope[] = ["international", "domestic"];
+const ranges: GoldRange[] = ["1d", "1m", "3m", "6m", "1y"];
 
 export function GoldPanel() {
+  const { locale, t } = useLocale();
   const [scope, setScope] = useState<GoldScope>("international");
   const [range, setRange] = useState<GoldRange>("3m");
   const [history, setHistory] = useState<GoldHistory | null>(null);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("正在读取黄金历史价格。");
+  const [message, setMessage] = useState(t.goldPanel.loading);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -40,18 +33,18 @@ export function GoldPanel() {
         });
         const payload = (await response.json()) as { data?: GoldHistory; error?: { message: string } };
         if (!response.ok || !payload.data) {
-          setMessage(payload.error?.message ?? "黄金价格暂时不可用。");
+          setMessage(localizedApiMessage(locale, payload.error?.message, t.goldPanel.unavailable));
           return;
         }
         setHistory(payload.data);
         setMessage(
           payload.data.scope === "domestic"
-            ? "国内金价为国际金价按 USD/CNY 折算的人民币/克参考价。"
-            : "国际金价使用美元/盎司口径。",
+            ? t.goldPanel.domesticMessage
+            : t.goldPanel.internationalMessage,
         );
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setMessage("黄金价格暂时不可用。");
+          setMessage(t.goldPanel.unavailable);
         }
       } finally {
         setLoading(false);
@@ -60,7 +53,7 @@ export function GoldPanel() {
 
     void loadHistory();
     return () => controller.abort();
-  }, [range, scope]);
+  }, [locale, range, scope, t.goldPanel]);
 
   async function reloadHistory() {
     setLoading(true);
@@ -70,31 +63,31 @@ export function GoldPanel() {
       });
       const payload = (await response.json()) as { data?: GoldHistory; error?: { message: string } };
       if (!response.ok || !payload.data) {
-        setMessage(payload.error?.message ?? "黄金价格暂时不可用。");
+        setMessage(localizedApiMessage(locale, payload.error?.message, t.goldPanel.unavailable));
         return;
       }
       setHistory(payload.data);
       setMessage(
         payload.data.scope === "domestic"
-          ? "国内金价为国际金价按 USD/CNY 折算的人民币/克参考价。"
-          : "国际金价使用美元/盎司口径。",
+          ? t.goldPanel.domesticMessage
+          : t.goldPanel.internationalMessage,
       );
     } finally {
       setLoading(false);
     }
   }
 
-  const chart = useMemo(() => buildChart(history), [history]);
+  const chart = useMemo(() => buildChart(history, t.goldPanel.locale), [history, t.goldPanel.locale]);
   const positive = (history?.changePercent ?? 0) >= 0;
 
   return (
     <section className="rounded-lg border border-line bg-white/85 shadow-soft">
       <div className="flex flex-col gap-4 border-b border-line p-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-ink">黄金走势</h2>
+          <h2 className="text-lg font-semibold text-ink">{t.goldPanel.title}</h2>
           <p className="mt-1 text-sm text-muted">{message}</p>
         </div>
-        <Button variant="secondary" size="icon" aria-label="刷新黄金价格" onClick={reloadHistory}>
+        <Button variant="secondary" size="icon" aria-label={t.goldPanel.refreshAria} onClick={reloadHistory}>
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
         </Button>
       </div>
@@ -103,53 +96,55 @@ export function GoldPanel() {
         <div className="flex flex-wrap gap-2">
           {scopes.map((item) => (
             <Button
-              key={item.id}
-              variant={scope === item.id ? "primary" : "secondary"}
+              key={item}
+              variant={scope === item ? "primary" : "secondary"}
               size="sm"
-              onClick={() => setScope(item.id)}
+              onClick={() => setScope(item)}
             >
-              {item.label}
+              {t.goldPanel.scopes[item]}
             </Button>
           ))}
           <div className="mx-1 hidden h-8 w-px bg-line md:block" />
           {ranges.map((item) => (
             <Button
-              key={item.id}
-              variant={range === item.id ? "primary" : "secondary"}
+              key={item}
+              variant={range === item ? "primary" : "secondary"}
               size="sm"
-              onClick={() => setRange(item.id)}
+              onClick={() => setRange(item)}
             >
-              {item.label}
+              {t.goldPanel.ranges[item]}
             </Button>
           ))}
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">
-          <Metric label="当前价格" value={history ? formatCurrency(history.currentPrice, history.currency) : "-"} />
+          <Metric label={t.goldPanel.currentPrice} value={history ? formatCurrency(history.currentPrice, history.currency) : "-"} />
           <Metric
-            label="区间涨跌"
+            label={t.goldPanel.rangeChange}
             value={history ? formatPercent(history.changePercent) : "-"}
             className={positive ? "text-coral" : "text-moss"}
           />
-          <Metric label="单位" value={history ? `每${history.unit}` : "-"} />
-          <Metric label="来源" value={history?.provider ?? "-"} />
+          <Metric label={t.goldPanel.unit} value={history ? t.goldPanel.perUnit(history.unit) : "-"} />
+          <Metric label={t.common.source} value={history?.provider ?? "-"} />
         </div>
 
         <div className="rounded-md border border-line bg-surface/60 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-sm font-semibold text-ink">
-                {scope === "domestic" ? "人民币/克参考价" : "国际金价"}
+                {scope === "domestic" ? t.goldPanel.domesticTitle : t.goldPanel.internationalTitle}
               </div>
               <div className="mt-1 text-xs text-muted">
-                {history ? `${history.points.length} 个价格点 · ${new Date(history.updatedAt).toLocaleString("zh-CN")}` : "等待数据"}
+                {history
+                  ? t.goldPanel.points(history.points.length, new Date(history.updatedAt).toLocaleString(t.goldPanel.locale))
+                  : t.goldPanel.waitingData}
               </div>
             </div>
             <Badge tone={positive ? "red" : "green"}>{history ? formatPercent(history.changePercent) : "-"}</Badge>
           </div>
 
           <div className="mt-4 aspect-[16/7] w-full overflow-hidden rounded-md bg-white">
-            <svg viewBox="0 0 760 340" role="img" aria-label="黄金价格时间走势图" className="h-full w-full">
+            <svg viewBox="0 0 760 340" role="img" aria-label={t.goldPanel.chartAria} className="h-full w-full">
               {chart.yTicks.map((tick) => (
                 <g key={tick.y}>
                   <line x1={chart.left} x2={chart.right} y1={tick.y} y2={tick.y} stroke="#e6dfd3" strokeWidth="1" />
@@ -169,10 +164,10 @@ export function GoldPanel() {
               <line x1={chart.left} x2={chart.left} y1={chart.top} y2={chart.bottom} stroke="#d8cebf" strokeWidth="1.2" />
               <line x1={chart.left} x2={chart.right} y1={chart.bottom} y2={chart.bottom} stroke="#d8cebf" strokeWidth="1.2" />
               <text x={chart.left} y={24} className="fill-muted text-[12px]">
-                价格
+                {t.goldPanel.priceAxis}
               </text>
               <text x={chart.right} y={chart.bottom + 54} textAnchor="end" className="fill-muted text-[12px]">
-                时间
+                {t.goldPanel.timeAxis}
               </text>
               <path d={chart.areaPath} fill={positive ? "rgba(191,86,61,0.12)" : "rgba(47,111,94,0.12)"} />
               <path
@@ -191,7 +186,7 @@ export function GoldPanel() {
   );
 }
 
-function buildChart(history: GoldHistory | null) {
+function buildChart(history: GoldHistory | null, locale: string) {
   const bounds = { left: 72, right: 724, top: 28, bottom: 286 };
   if (!history || history.points.length < 2) {
     return {
@@ -230,7 +225,7 @@ function buildChart(history: GoldHistory | null) {
   const tickIndexes = uniqueTickIndexes(points.length, 5);
   const xTicks = tickIndexes.map((index) => ({
     x: bounds.left + (index / (points.length - 1)) * width,
-    label: formatDateTick(points[index].date, history.range),
+    label: formatDateTick(points[index].date, history.range, locale),
   }));
 
   return { ...bounds, linePath, areaPath, xTicks, yTicks };
@@ -243,17 +238,17 @@ function uniqueTickIndexes(total: number, count: number) {
   }).filter((index, position, indexes) => indexes.indexOf(index) === position);
 }
 
-function formatDateTick(value: string, range: GoldRange) {
+function formatDateTick(value: string, range: GoldRange, locale: string) {
   const date = new Date(value);
   if (range === "1y") {
-    return date.toLocaleDateString("zh-CN", { year: "2-digit", month: "numeric" });
+    return date.toLocaleDateString(locale, { year: "2-digit", month: "numeric" });
   }
-  return date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+  return date.toLocaleDateString(locale, { month: "numeric", day: "numeric" });
 }
 
 function formatPriceTick(value: number, currency: string) {
-  if (currency === "CNY") return `¥${Math.round(value).toLocaleString("zh-CN")}`;
-  return `$${Math.round(value).toLocaleString("zh-CN")}`;
+  if (currency === "CNY") return `¥${Math.round(value).toLocaleString("en-US")}`;
+  return `$${Math.round(value).toLocaleString("en-US")}`;
 }
 
 function Metric({
