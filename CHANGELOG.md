@@ -5,6 +5,8 @@ This file records MarketPilot releases, dates, versions, and notable feature cha
 
 ## [1.0.0] - 2026-06-15
 
+Commit: `c304e712fd14dc8cbaec9bf64fdfa3bc76f672de`
+
 ### Added
 
 - Initial MarketPilot release record.
