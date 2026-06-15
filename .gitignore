@@ -33,3 +33,5 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
+devDocs/*
+docs/
