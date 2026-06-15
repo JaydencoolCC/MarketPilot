@@ -48,34 +48,50 @@ MarketPilot brings that loop into a single personal workspace. It is designed to
 
 ## Run MarketPilot Locally
 
-MarketPilot uses the `trade` conda environment in this workspace.
+The commands below target Ubuntu/Debian Linux. They create the required `trade` conda environment first, then install locked Node dependencies and prepare PostgreSQL.
 
 ```bash
-conda activate trade
-npm install
+conda create -y -n trade -c conda-forge nodejs=20
+conda run -n trade npm ci
 cp .env.example .env
 ```
 
 Prepare a local PostgreSQL database:
 
 ```bash
-brew install postgresql@16
-brew services start postgresql@16
-psql -h 127.0.0.1 -d postgres -c "CREATE ROLE trade LOGIN PASSWORD 'trade' CREATEDB;"
-createdb -h 127.0.0.1 -O trade trade
+sudo apt update
+sudo apt install -y postgresql postgresql-contrib
+sudo systemctl enable --now postgresql
+sudo -u postgres psql -c "CREATE ROLE trade LOGIN PASSWORD 'trade' CREATEDB;"
+sudo -u postgres createdb -O trade trade
 ```
 
-Generate Prisma client, run migrations, and start the app:
+Set the database URL in `.env`:
 
 ```bash
+sed -i 's#^DATABASE_URL=.*#DATABASE_URL="postgresql://trade:trade@127.0.0.1:5432/trade?schema=public"#' .env
+```
+
+Generate Prisma client, apply existing migrations, and start the development server:
+
+```bash
+set -a
+. ./.env
+set +a
+
 conda run -n trade npm run prisma:generate
-DATABASE_URL="postgresql://trade:trade@127.0.0.1:5432/trade?schema=public" \
-  conda run -n trade npm run prisma:migrate -- --name init
-DATABASE_URL="postgresql://trade:trade@127.0.0.1:5432/trade?schema=public" \
-  conda run --no-capture-output -n trade npm run dev
+conda run -n trade npx prisma migrate deploy
+conda run --no-capture-output -n trade npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+For production startup, fill `.env` with real provider values and run:
+
+```bash
+chmod +x scripts/start-production.sh
+./scripts/start-production.sh
+```
 
 ## Configure Providers
 
@@ -90,15 +106,13 @@ Copy `.env.example` to `.env`, then fill in the providers you want to use.
 | Email | `EMAIL_PROVIDER`, `SMTP_URL`, `EMAIL_FROM` | Required for real daily digest delivery. |
 | App | `APP_TIMEZONE` | Defaults to `Asia/Shanghai`. |
 
-For production startup details, see [get_start.md](get_start.md). For the fuller product and technical notes, see [docs/product-technical-spec.md](docs/product-technical-spec.md).
-
 ## Project Status
 
 MarketPilot is an open-source personal finance workspace, actively evolving around watchlist research, real data providers, daily summaries, and AI-assisted review.
 
 It is not intended for trading execution, brokerage connectivity, high-frequency real-time data, or deterministic financial advice.
 
-## Star History
+<!-- ## Star History
 
 <a href="https://www.star-history.com/#JaydencoolCC/MarketPilot&Date">
   <picture>
@@ -106,7 +120,7 @@ It is not intended for trading execution, brokerage connectivity, high-frequency
     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=JaydencoolCC/MarketPilot&type=Date" />
     <img alt="MarketPilot star history" src="https://api.star-history.com/svg?repos=JaydencoolCC/MarketPilot&type=Date" />
   </picture>
-</a>
+</a> -->
 
 ## License
 
