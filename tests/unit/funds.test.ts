@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import iconv from "iconv-lite";
-import { addFundItem, deleteFundItem, listFundRows, resetStoreForTests, searchFunds } from "@/lib/db/store";
+import {
+  addFundItem,
+  deleteFundItem,
+  getLiveFundSnapshots,
+  listFundRows,
+  resetStoreForTests,
+  searchFunds,
+} from "@/lib/db/store";
 import { fundFromSymbol, fundTypeFromSymbol, normalizeFundSymbol } from "@/lib/domain/funds";
 import { PublicFundProvider } from "@/lib/providers/funds/public";
 
@@ -59,6 +66,56 @@ describe("PublicFundProvider", () => {
       estimateValue: 4.1567,
       changePercent: 1.23,
       provider: "eastmoney",
+      status: "ok",
+    });
+  });
+
+  it("falls back to Eastmoney historical NAV when realtime fund data is unavailable", async () => {
+    global.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.includes("fundgz.1234567.com.cn")) {
+        return new Response("jsonpgz(null);");
+      }
+      if (url.includes("F10DataApi.aspx")) {
+        return new Response(
+          `<table><tbody><tr><td>2026-05-22</td><td>1.6384</td><td>1.6384</td><td>0.92%</td><td></td></tr></tbody></table>`,
+        );
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    const [snapshot] = await new PublicFundProvider().getFundSnapshots(["007722.FUND"]);
+
+    expect(snapshot).toMatchObject({
+      symbol: "007722.FUND",
+      netValue: 1.6384,
+      changePercent: 0.92,
+      provider: "eastmoney-history",
+      status: "ok",
+    });
+  });
+
+  it("falls back to Sina fund NAV when Eastmoney sources are unavailable", async () => {
+    global.fetch = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.includes("fundgz.1234567.com.cn")) {
+        return new Response("jsonpgz(null);");
+      }
+      if (url.includes("F10DataApi.aspx")) {
+        return new Response("<table><tbody><tr><th>净值日期</th><th>单位净值</th></tr></tbody></table>");
+      }
+      if (url.includes("hq.sinajs.cn")) {
+        return new Response('var hq_str_f_007722="天弘标普500发起(QDII-FOF)C,1.6384,2026-05-22";');
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    const [snapshot] = await new PublicFundProvider().getFundSnapshots(["007722.FUND"]);
+
+    expect(snapshot).toMatchObject({
+      symbol: "007722.FUND",
+      netValue: 1.6384,
+      provider: "sina",
       status: "ok",
     });
   });
@@ -264,6 +321,23 @@ describe("fund store", () => {
     expect(item).toMatchObject({ normalizedSymbol: "SPY.US", type: "etf" });
     expect(row?.snapshot?.provider).toBe("mock");
     expect(row?.dataStatus).toBe("ok");
+  });
+
+  it("keeps failed fund snapshots without prior data out of persisted rows", async () => {
+    global.fetch = vi.fn(async () => new Response("unavailable", { status: 503 })) as typeof fetch;
+
+    await addFundItem({ symbol: "110022" });
+    const [liveSnapshot] = await getLiveFundSnapshots(["110022.FUND"]);
+    const [row] = await listFundRows();
+
+    expect(liveSnapshot).toMatchObject({
+      symbol: "110022.FUND",
+      status: "error",
+      netValue: 0,
+      errorCode: "PROVIDER_UNAVAILABLE",
+    });
+    expect(row?.dataStatus).toBe("stale");
+    expect(row?.snapshot).toBeNull();
   });
 
   it("searches known funds", async () => {

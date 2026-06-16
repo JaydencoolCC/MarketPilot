@@ -37,6 +37,13 @@ type EastmoneyFundCodeListItem = [
   pinyinInitials?: string,
 ];
 
+type ParsedFundSnapshot = {
+  netValue: number;
+  estimateValue?: number;
+  changePercent: number;
+  quoteTime: string;
+};
+
 export class PublicFundProvider implements FundProvider {
   async searchFunds(keyword: string): Promise<FundSearchResult[]> {
     const query = keyword.trim();
@@ -78,7 +85,8 @@ export class PublicFundProvider implements FundProvider {
     }
 
     try {
-      return await fetchEastmoneyFundSnapshot(normalizedSymbol);
+      const snapshot = await firstSuccessfulFundSnapshot(normalizedSymbol);
+      return snapshot;
     } catch (error) {
       const message = error instanceof Error ? error.message : "基金数据暂时不可用。";
       const fund = fundFromSymbol(normalizedSymbol, "mutual_fund");
@@ -95,6 +103,29 @@ export class PublicFundProvider implements FundProvider {
       };
     }
   }
+}
+
+async function firstSuccessfulFundSnapshot(normalizedSymbol: string): Promise<FundSnapshot> {
+  const failures: string[] = [];
+  const sources = [
+    ["eastmoney", fetchEastmoneyFundSnapshot],
+    ["eastmoney-history", fetchEastmoneyHistoricalFundSnapshot],
+    ["sina", fetchSinaFundSnapshot],
+  ] as const;
+
+  for (const [provider, fetchSnapshot] of sources) {
+    try {
+      const snapshot = await fetchSnapshot(normalizedSymbol);
+      if (snapshot.netValue > 0) {
+        return { ...snapshot, provider };
+      }
+      failures.push(`${provider}: empty value`);
+    } catch (error) {
+      failures.push(`${provider}: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
+  }
+
+  throw new AppError("PROVIDER_UNAVAILABLE", `基金数据源均不可用：${failures.join("；")}`, 503);
 }
 
 async function searchEastmoneyFunds(keyword: string): Promise<FundSearchResult[]> {
@@ -161,7 +192,8 @@ async function searchEastmoneyFundCodeList(keyword: string): Promise<FundSearchR
       return haystack.some((value) => value.includes(query));
     })
     .flatMap((item) => {
-      const [code, _pinyin, name] = item;
+      const code = item[0];
+      const name = item[2];
       if (!code || !name || !/^\d{6}$/.test(code)) return [];
       return [{
         code,
@@ -212,21 +244,79 @@ async function fetchEastmoneyFundSnapshot(normalizedSymbol: string): Promise<Fun
     throw new AppError("PROVIDER_UNAVAILABLE", `东方财富基金请求失败：${response.status}`, 503);
   }
 
-  const text = await response.text();
-  const payload = parseEastmoneyFundJson(text);
-  const netValue = toNumber(payload.dwjz);
-  const estimateValue = toNumber(payload.gsz);
-  const changePercent = toNumber(payload.gszzl);
-  const quoteTime = parseFundTime(payload.gztime || payload.jzrq);
+  const parsed = parseEastmoneyRealtimeSnapshot(await response.text());
 
   return {
     symbol: normalizedSymbol,
-    netValue: netValue || estimateValue,
-    estimateValue: estimateValue || undefined,
-    changePercent,
+    netValue: parsed.netValue,
+    estimateValue: parsed.estimateValue,
+    changePercent: parsed.changePercent,
     currency: "CNY",
     provider: "eastmoney",
-    quoteTime,
+    quoteTime: parsed.quoteTime,
+    status: "ok",
+  };
+}
+
+async function fetchEastmoneyHistoricalFundSnapshot(normalizedSymbol: string): Promise<FundSnapshot> {
+  const fund = fundFromSymbol(normalizedSymbol, "mutual_fund");
+  const url = new URL("https://fundf10.eastmoney.com/F10DataApi.aspx");
+  url.searchParams.set("type", "lsjz");
+  url.searchParams.set("code", fund.code);
+  url.searchParams.set("page", "1");
+  url.searchParams.set("per", "1");
+
+  const response = await marketDataFetch(url, {
+    cache: "no-store",
+    headers: {
+      Referer: `https://fundf10.eastmoney.com/jjjz_${fund.code}.html`,
+      "User-Agent": "Mozilla/5.0",
+    },
+  });
+
+  if (!response.ok) {
+    throw new AppError("PROVIDER_UNAVAILABLE", `东方财富历史净值请求失败：${response.status}`, 503);
+  }
+
+  const parsed = parseEastmoneyHistoricalSnapshot(await response.text());
+
+  return {
+    symbol: normalizedSymbol,
+    netValue: parsed.netValue,
+    estimateValue: parsed.estimateValue,
+    changePercent: parsed.changePercent,
+    currency: "CNY",
+    provider: "eastmoney-history",
+    quoteTime: parsed.quoteTime,
+    status: "ok",
+  };
+}
+
+async function fetchSinaFundSnapshot(normalizedSymbol: string): Promise<FundSnapshot> {
+  const fund = fundFromSymbol(normalizedSymbol, "mutual_fund");
+  const url = `https://hq.sinajs.cn/list=f_${fund.code}`;
+  const response = await marketDataFetch(url, {
+    cache: "no-store",
+    headers: {
+      Referer: "https://finance.sina.com.cn/",
+      "User-Agent": "Mozilla/5.0",
+    },
+  });
+
+  if (!response.ok) {
+    throw new AppError("PROVIDER_UNAVAILABLE", `Sina 基金净值请求失败：${response.status}`, 503);
+  }
+
+  const parsed = parseSinaFundSnapshot(await response.text());
+
+  return {
+    symbol: normalizedSymbol,
+    netValue: parsed.netValue,
+    estimateValue: parsed.estimateValue,
+    changePercent: parsed.changePercent,
+    currency: "CNY",
+    provider: "sina",
+    quoteTime: parsed.quoteTime,
     status: "ok",
   };
 }
@@ -260,6 +350,66 @@ function parseEastmoneyFundJson(text: string): EastmoneyFundQuote {
     throw new AppError("PROVIDER_UNAVAILABLE", "东方财富基金没有返回可用数据。", 503);
   }
   return JSON.parse(json) as EastmoneyFundQuote;
+}
+
+function parseEastmoneyRealtimeSnapshot(text: string): ParsedFundSnapshot {
+  const payload = parseEastmoneyFundJson(text);
+  const netValue = toNumber(payload.dwjz);
+  const estimateValue = toNumber(payload.gsz);
+  const quoteTime = parseFundTime(payload.gztime || payload.jzrq);
+  const resolvedNetValue = netValue || estimateValue;
+  if (resolvedNetValue <= 0) {
+    throw new AppError("PROVIDER_UNAVAILABLE", "东方财富实时估值没有返回可用净值。", 503);
+  }
+
+  return {
+    netValue: resolvedNetValue,
+    estimateValue: estimateValue || undefined,
+    changePercent: toNumber(payload.gszzl),
+    quoteTime,
+  };
+}
+
+function parseEastmoneyHistoricalSnapshot(text: string): ParsedFundSnapshot {
+  const rows = text.match(/<tr>[\s\S]*?<\/tr>/g) ?? [];
+  for (const row of rows) {
+    const cells = row.match(/<td[^>]*>[\s\S]*?<\/td>/g)?.map(stripHtml) ?? [];
+    const date = cells.find((cell) => /^\d{4}-\d{2}-\d{2}$/.test(cell));
+    const netValue = toNumber(cells[1]);
+    const changePercent = toNumber(cells.find((cell) => /^[-+]?\d+(\.\d+)?%$/.test(cell))?.replace("%", ""));
+
+    if (date && netValue > 0) {
+      return {
+        netValue,
+        changePercent,
+        quoteTime: parseFundTime(date),
+      };
+    }
+  }
+
+  throw new AppError("PROVIDER_UNAVAILABLE", "东方财富历史净值没有返回有效净值。", 503);
+}
+
+function parseSinaFundSnapshot(text: string): ParsedFundSnapshot {
+  const raw = text.match(/hq_str_f_\d+="([^"]*)"/)?.[1];
+  if (!raw) {
+    throw new AppError("PROVIDER_UNAVAILABLE", "Sina 基金净值没有返回可用数据。", 503);
+  }
+
+  const fields = raw.split(",").map((field) => field.trim());
+  const numericFields = fields.map(toNumber);
+  const netValue = numericFields.find((value) => value > 0) ?? 0;
+  const date = fields.find((field) => /^\d{4}-\d{2}-\d{2}$/.test(field));
+
+  if (!date || netValue <= 0) {
+    throw new AppError("PROVIDER_UNAVAILABLE", "Sina 基金净值没有返回有效净值。", 503);
+  }
+
+  return {
+    netValue,
+    changePercent: 0,
+    quoteTime: parseFundTime(date),
+  };
 }
 
 function parseEastmoneyFundCodeList(text: string): EastmoneyFundCodeListItem[] {

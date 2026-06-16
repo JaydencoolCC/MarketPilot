@@ -22,12 +22,11 @@ export function DashboardLayout({ active, main, aside }: DashboardLayoutProps) {
   const { t } = useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const mainWidthRef = useRef(DEFAULT_MAIN_WIDTH);
-  const [mainWidth, setMainWidth] = useState(DEFAULT_MAIN_WIDTH);
-
-  useEffect(() => {
+  const [mainWidth, setMainWidth] = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_MAIN_WIDTH;
     const saved = window.localStorage.getItem("trade-dashboard-main-width");
-    if (saved) setMainWidth(Number(saved));
-  }, []);
+    return saved ? Number(saved) : DEFAULT_MAIN_WIDTH;
+  });
 
   useEffect(() => {
     mainWidthRef.current = mainWidth;

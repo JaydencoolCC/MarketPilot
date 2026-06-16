@@ -226,11 +226,11 @@ function MarketDataNetworkCard({
                 placeholder={t.settings.proxyPlaceholder}
               />
             </label>
-            <Button type="button" variant="secondary" onClick={testProxy} disabled={busy}>
+            <Button type="button" variant="secondary" className="whitespace-nowrap" onClick={testProxy} disabled={busy}>
               <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
               {busy ? t.settings.testing : t.settings.testProxy}
             </Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" className="whitespace-nowrap" disabled={busy}>
               <Save className="h-4 w-4" />
               {t.settings.saveProxy}
             </Button>
@@ -249,7 +249,7 @@ function ProviderStatusCard({
   integration: PublicIntegrationSetting;
   onUpdate: (integration: PublicIntegrationSetting) => void;
 }) {
-  const { t } = useLocale();
+  const { locale, t } = useLocale();
   const [testing, setTesting] = useState(false);
 
   async function testProvider() {
@@ -265,6 +265,19 @@ function ProviderStatusCard({
         error?: { message: string };
       };
       if (payload.data) onUpdate(payload.data);
+      if (!response.ok && !payload.data) {
+        onUpdate({
+          ...integration,
+          status: "failed",
+          statusMessage: payload.error?.message ?? t.settings.providerTestFailed,
+        });
+      }
+    } catch {
+      onUpdate({
+        ...integration,
+        status: "failed",
+        statusMessage: t.settings.providerTestFailed,
+      });
     } finally {
       setTesting(false);
     }
@@ -275,13 +288,13 @@ function ProviderStatusCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-ink">{providerLabel(integration, t)}</div>
-          <p className="mt-1 text-xs leading-5 text-muted">{providerStatusMessage(integration, t)}</p>
+          <p className="mt-1 text-xs leading-5 text-muted">{localizedProviderStatusMessage(integration, locale, t)}</p>
         </div>
         <StatusDot status={integration.status} />
       </div>
-      <div className="mt-3 flex items-center justify-between gap-3">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <Badge tone={integration.source === "unconfigured" ? "amber" : "green"}>{sourceLabel(integration.source, t)}</Badge>
-        <Button size="sm" variant="secondary" onClick={testProvider} disabled={testing}>
+        <Button size="sm" variant="secondary" className="whitespace-nowrap" onClick={testProvider} disabled={testing}>
           <RefreshCw className={cn("h-4 w-4", testing && "animate-spin")} />
           {testing ? t.settings.testing : t.settings.testConnection}
         </Button>
@@ -302,7 +315,8 @@ function ModelSettingsCard({
   const [modelName, setModelName] = useState(integration.modelName ?? "");
   const [apiKey, setApiKey] = useState("");
   const [editingApiKey, setEditingApiKey] = useState(false);
-  const [message, setMessage] = useState(integration.statusMessage);
+  const message = localizedProviderStatusMessage(integration, locale, t);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const savedKeyDisplay = integration.secretConfigured ? "********" : "";
@@ -314,7 +328,7 @@ function ModelSettingsCard({
   async function saveModel(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if ((editingApiKey || !integration.secretConfigured) && !apiKey.trim()) {
-      setMessage(t.settings.enterApiKey);
+      setActionMessage(t.settings.enterApiKey);
       return;
     }
 
@@ -334,13 +348,13 @@ function ModelSettingsCard({
         error?: { message: string };
       };
       if (!response.ok || !payload.data) {
-        setMessage(localizedApiMessage(locale, payload.error?.message, t.settings.modelSaveFailed));
+        setActionMessage(localizedApiMessage(locale, payload.error?.message, t.settings.modelSaveFailed));
         return;
       }
       onUpdate(payload.data);
       setApiKey("");
       setEditingApiKey(false);
-      setMessage(t.settings.modelSaved);
+      setActionMessage(t.settings.modelSaved);
     } finally {
       setBusy(false);
     }
@@ -356,7 +370,11 @@ function ModelSettingsCard({
         error?: { message: string };
       };
       if (payload.data) onUpdate(payload.data);
-      setMessage(localizedApiMessage(locale, payload.result?.message ?? payload.error?.message, t.settings.modelTestDone));
+      setActionMessage(
+        response.ok
+          ? t.settings.providerStatusSuccess.model
+          : localizedApiMessage(locale, payload.error?.message, t.settings.providerTestFailed),
+      );
     } finally {
       setBusy(false);
     }
@@ -414,13 +432,13 @@ function ModelSettingsCard({
           />
         </label>
         <div className="md:col-span-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <p className="text-sm leading-6 text-muted">{message}</p>
+          <p className="text-sm leading-6 text-muted">{actionMessage ?? message}</p>
           <div className="flex gap-2">
-            <Button type="button" variant="secondary" onClick={testModel} disabled={busy}>
+            <Button type="button" variant="secondary" className="whitespace-nowrap" onClick={testModel} disabled={busy}>
               <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
               {busy ? t.settings.testing : t.settings.testConnection}
             </Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" className="whitespace-nowrap" disabled={busy}>
               <Save className="h-4 w-4" />
               {t.settings.saveChatConfig}
             </Button>
@@ -438,7 +456,7 @@ function MarketProviderCard({
   integration: PublicIntegrationSetting;
   onUpdate: (integration: PublicIntegrationSetting) => void;
 }) {
-  const { t } = useLocale();
+  const { locale, t } = useLocale();
   const [testing, setTesting] = useState(false);
   const Icon = integration.kind === "quote" ? Database : integration.kind === "news" ? Newspaper : Mail;
 
@@ -455,6 +473,19 @@ function MarketProviderCard({
         error?: { message: string };
       };
       if (payload.data) onUpdate(payload.data);
+      if (!response.ok && !payload.data) {
+        onUpdate({
+          ...integration,
+          status: "failed",
+          statusMessage: payload.error?.message ?? t.settings.providerTestFailed,
+        });
+      }
+    } catch {
+      onUpdate({
+        ...integration,
+        status: "failed",
+        statusMessage: t.settings.providerTestFailed,
+      });
     } finally {
       setTesting(false);
     }
@@ -474,13 +505,13 @@ function MarketProviderCard({
             </div>
             <Badge tone={integration.source === "unconfigured" ? "amber" : "green"}>{sourceLabel(integration.source, t)}</Badge>
           </div>
-          <p className="mt-3 text-sm text-muted">{providerStatusMessage(integration, t)}</p>
+          <p className="mt-3 text-sm text-muted">{localizedProviderStatusMessage(integration, locale, t)}</p>
           <div className="mt-4 flex items-center justify-between gap-3 rounded-md bg-surface/60 p-3">
             <div className="flex items-center gap-2 text-sm text-muted">
               <StatusDot status={integration.status} />
               <span>{integration.status === "failed" ? t.settings.connectionFailed : t.settings.canTestManually}</span>
             </div>
-            <Button size="sm" variant="secondary" onClick={testProvider} disabled={testing}>
+            <Button size="sm" variant="secondary" className="whitespace-nowrap" onClick={testProvider} disabled={testing}>
               <RefreshCw className={cn("h-4 w-4", testing && "animate-spin")} />
               {testing ? t.settings.testing : t.settings.testConnection}
             </Button>
@@ -525,9 +556,9 @@ function providerLabel(integration: PublicIntegrationSetting, t: ReturnType<type
 }
 
 function providerDescription(integration: PublicIntegrationSetting, t: ReturnType<typeof useLocale>["t"]) {
-  if (integration.kind === "quote") return t.dashboard.subtitles.stocks(integration.provider);
-  if (integration.kind === "news") return t.chatPreview.body;
-  if (integration.kind === "email") return t.emailSettings.readyMessage;
+  if (integration.kind === "quote") return t.settings.quoteProviderBody;
+  if (integration.kind === "news") return t.settings.newsProviderBody;
+  if (integration.kind === "email") return t.settings.emailProviderBody;
   return integration.description;
 }
 
@@ -535,4 +566,17 @@ function providerStatusMessage(integration: PublicIntegrationSetting, t: ReturnT
   if (integration.status === "success") return t.common.sourceStatus.success;
   if (integration.status === "untested") return t.common.sourceStatus.pending;
   return t.settings.connectionFailed;
+}
+
+function localizedProviderStatusMessage(
+  integration: PublicIntegrationSetting,
+  locale: ReturnType<typeof useLocale>["locale"],
+  t: ReturnType<typeof useLocale>["t"],
+) {
+  if (locale === "zh") {
+    return integration.statusMessage ?? providerStatusMessage(integration, t);
+  }
+  if (integration.status === "success") return t.settings.providerStatusSuccess[integration.kind];
+  if (integration.status === "failed") return t.settings.connectionFailed;
+  return t.common.sourceStatus.pending;
 }

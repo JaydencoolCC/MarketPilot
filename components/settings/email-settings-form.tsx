@@ -80,10 +80,14 @@ export function EmailSettingsForm({
       setSetting(payload.data);
       if (authCode.trim()) {
         const savedProvider = await saveProviderConnection();
-        if (savedProvider) setMessage(t.emailSettings.settingsAndProviderSaved);
+        if (savedProvider) {
+          setMessage(t.emailSettings.settingsAndProviderSaved);
+        }
         return;
       }
       setMessage(realEmailReady ? t.emailSettings.savedReady : t.emailSettings.savedNotReady);
+    } catch {
+      setMessage(t.emailSettings.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -103,6 +107,8 @@ export function EmailSettingsForm({
         return;
       }
       setMessage(localizedApiMessage(locale, payload.data?.message, t.emailSettings.requestHandled));
+    } catch {
+      setMessage(t.emailSettings.requestFailed);
     } finally {
       setSending(false);
     }
@@ -113,6 +119,8 @@ export function EmailSettingsForm({
     try {
       const savedProvider = await saveProviderConnection();
       if (savedProvider) setMessage(t.emailSettings.providerSaved);
+    } catch {
+      setMessage(t.emailSettings.providerSaveFailed);
     } finally {
       setSavingProvider(false);
     }

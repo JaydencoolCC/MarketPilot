@@ -12,7 +12,7 @@ import { calculateStockHolding, hasStockHolding } from "@/lib/domain/holdings";
 import { fundDetailUrl, stockDetailUrl } from "@/lib/domain/xueqiu";
 import { formatCurrency, formatPercent, formatUnitPrice } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
-import { dictionary, localizedApiMessage } from "@/lib/i18n";
+import { localizedApiMessage } from "@/lib/i18n";
 
 type HoldingTableProps = {
   initialRows: WatchlistRow[];
@@ -55,14 +55,15 @@ function hasFundHolding(row: Pick<FundRow, "costPrice" | "shares">) {
 }
 
 function calculateFundHolding(row: FundRow) {
-  if (!row.snapshot || !hasFundHolding(row)) return null;
+  if (!usableFundSnapshot(row.snapshot) || !hasFundHolding(row)) return null;
 
-  const currentPrice = row.snapshot.estimateValue ?? row.snapshot.netValue;
+  const snapshot = usableFundSnapshot(row.snapshot)!;
+  const currentPrice = snapshot.estimateValue ?? snapshot.netValue;
   const costValue = row.costPrice! * row.shares!;
   const marketValue = currentPrice * row.shares!;
-  const previousPrice = row.snapshot.changePercent === -100
+  const previousPrice = snapshot.changePercent === -100
     ? currentPrice
-    : currentPrice / (1 + row.snapshot.changePercent / 100);
+    : currentPrice / (1 + snapshot.changePercent / 100);
   const todayPnl = (currentPrice - previousPrice) * row.shares!;
   const unrealizedPnl = marketValue - costValue;
   const costBasis = Math.abs(costValue);
@@ -74,12 +75,23 @@ function calculateFundHolding(row: FundRow) {
     unrealizedPnl,
     unrealizedPnlPercent: costBasis === 0 ? null : (unrealizedPnl / costBasis) * 100,
     currentPrice,
-    currency: row.snapshot.currency,
+    currency: snapshot.currency,
   };
 }
 
 function fundCurrentPrice(row: Pick<FundRow, "snapshot">) {
-  return row.snapshot?.estimateValue ?? row.snapshot?.netValue;
+  const snapshot = usableFundSnapshot(row.snapshot);
+  return snapshot?.estimateValue ?? snapshot?.netValue;
+}
+
+function usableQuote(quote: Quote | null | undefined) {
+  if (!quote || (quote.status === "error" && quote.price <= 0)) return null;
+  return quote;
+}
+
+function usableFundSnapshot(snapshot: FundSnapshot | null | undefined) {
+  if (!snapshot || (snapshot.status === "error" && snapshot.netValue <= 0)) return null;
+  return snapshot;
 }
 
 function fundMarketValueInputValue(row: FundRow | undefined) {
@@ -190,13 +202,6 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
   }, [rows]);
 
   useEffect(() => {
-    const previous = dictionary[locale === "zh" ? "en" : "zh"].holdings;
-    setMessage((current) => (current === previous.stockInitial ? t.holdings.stockInitial : current));
-    setFundMessage((current) => (current === previous.fundInitial ? t.holdings.fundInitial : current));
-    setLockMessage((current) => (current === previous.lock.enterPassword ? t.holdings.lock.enterPassword : current));
-  }, [locale, t.holdings]);
-
-  useEffect(() => {
     fundRowsRef.current = fundRows;
   }, [fundRows]);
 
@@ -271,6 +276,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
     setIsStockSearchOpen(true);
     if (!value.trim()) {
       setSecuritySuggestions([]);
+      setSearching(false);
       return;
     }
 
@@ -292,7 +298,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
     } finally {
       if (requestId === searchRequestRef.current) setSearching(false);
     }
-  }, []);
+  }, [locale, t.holdings.stockNoMatch, t.holdings.stockSearchFailed]);
 
   const searchFunds = useCallback(async (value: string) => {
     const requestId = fundSearchRequestRef.current + 1;
@@ -303,6 +309,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
     setIsFundSearchOpen(true);
     if (!value.trim()) {
       setFundSuggestions([]);
+      setSearching(false);
       return;
     }
 
@@ -324,7 +331,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
     } finally {
       if (requestId === fundSearchRequestRef.current) setSearching(false);
     }
-  }, []);
+  }, [locale, t.holdings.fundNoMatch, t.holdings.fundSearchFailed]);
 
   const mergeQuotes = useCallback((quotes: Quote[]) => {
     const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
@@ -912,7 +919,8 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                 </thead>
                 <tbody>
                   {holdingRows.map((row) => {
-                    const metrics = calculateStockHolding(row);
+                    const quote = usableQuote(row.quote);
+                    const metrics = calculateStockHolding({ ...row, quote });
                     return (
                       <tr key={row.id} className="border-t border-line/70 hover:bg-moss/5">
                         <td className="px-4 py-4">
@@ -927,7 +935,7 @@ export function HoldingTable({ initialRows, initialFundRows }: HoldingTableProps
                         </td>
                         <td className="whitespace-nowrap px-4 py-4 text-ink">{row.shares}</td>
                         <td className="whitespace-nowrap px-4 py-4 font-medium text-ink">
-                          {row.quote ? formatUnitPrice(row.quote.price, row.quote.currency) : t.common.waitQuote}
+                          {quote ? formatUnitPrice(quote.price, quote.currency) : t.common.waitQuote}
                         </td>
                         <td className="whitespace-nowrap px-4 py-4 text-ink">
                           {metrics ? formatCurrency(metrics.costValue, metrics.currency) : t.common.waitQuote}

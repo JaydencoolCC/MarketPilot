@@ -153,7 +153,7 @@ function displayQuoteAfterFailure(quote: Quote): Quote {
 }
 
 function quotesToPersist(quotes: Quote[]) {
-  return quotes.filter((quote) => quote.status === "ok" || (quote.status === "error" && quote.price <= 0));
+  return quotes.filter((quote) => quote.status === "ok");
 }
 
 function hasFailedQuotes(quotes: Quote[]) {
@@ -165,7 +165,7 @@ function replaceFailedQuotesWithLatest(quotes: Quote[], latestQuotes: Record<str
     if (quote.status !== "error") return quote;
     const security = securityFromSymbol(quote.symbol);
     const latest = latestQuotes[security.normalizedSymbol] ?? latestQuotes[quote.symbol];
-    if (!latest) return quote;
+    if (!latest || latest.status !== "ok") return quote;
     return {
       ...latest,
       status: "stale",
@@ -204,6 +204,41 @@ function fundSnapshotFromRecord(snapshot: FundSnapshotRecord): FundSnapshot {
     errorCode: snapshot.errorCode ?? undefined,
     errorMessage: snapshot.errorMessage ?? undefined,
   };
+}
+
+function displayFundSnapshotAfterFailure(snapshot: FundSnapshot): FundSnapshot {
+  if (snapshot.status !== "error" || snapshot.netValue <= 0) return snapshot;
+  return {
+    ...snapshot,
+    status: "stale",
+    errorCode: undefined,
+    errorMessage: undefined,
+  };
+}
+
+function fundSnapshotsToPersist(snapshots: FundSnapshot[]) {
+  return snapshots.filter((snapshot) => snapshot.status === "ok");
+}
+
+function hasFailedFundSnapshots(snapshots: FundSnapshot[]) {
+  return snapshots.some((snapshot) => snapshot.status === "error");
+}
+
+function replaceFailedFundSnapshotsWithLatest(
+  snapshots: FundSnapshot[],
+  latestSnapshots: Record<string, FundSnapshot>,
+) {
+  return snapshots.map((snapshot) => {
+    if (snapshot.status !== "error") return snapshot;
+    const fund = fundFromSymbol(snapshot.symbol);
+    const latest = latestSnapshots[fund.normalizedSymbol] ?? latestSnapshots[snapshot.symbol];
+    if (!latest || latest.status !== "ok") return snapshot;
+    return {
+      ...latest,
+      status: "stale",
+      fetchedAt: snapshot.fetchedAt ?? latest.fetchedAt,
+    } satisfies FundSnapshot;
+  });
 }
 
 export async function listWatchlistRows(): Promise<WatchlistRow[]> {
@@ -649,7 +684,7 @@ export async function listFundRows(): Promise<FundRow[]> {
     })) as Array<FundWatchlistRecord & { snapshots: FundSnapshotRecord[] }>;
 
     return records.map((record) => {
-      const snapshot = record.snapshots[0] ? fundSnapshotFromRecord(record.snapshots[0]) : null;
+      const snapshot = record.snapshots[0] ? displayFundSnapshotAfterFailure(fundSnapshotFromRecord(record.snapshots[0])) : null;
       return {
         ...fundItemFromRecord(record),
         snapshot,
@@ -660,7 +695,9 @@ export async function listFundRows(): Promise<FundRow[]> {
 
   const store = getStore();
   return store.funds.map((item) => {
-    const snapshot = store.fundSnapshots[item.normalizedSymbol] ?? null;
+    const snapshot = store.fundSnapshots[item.normalizedSymbol]
+      ? displayFundSnapshotAfterFailure(store.fundSnapshots[item.normalizedSymbol])
+      : null;
     return {
       ...item,
       snapshot,
@@ -825,7 +862,11 @@ export async function refreshFunds(symbols?: string[]) {
 
     if (!targetSymbols.length) return [];
 
-    const snapshots = await getFundSnapshotsSafely(targetSymbols);
+    let snapshots = await getFundSnapshotsSafely(targetSymbols);
+    if (hasFailedFundSnapshots(snapshots)) {
+      const latestSnapshots = await latestFundSnapshotsFromDatabase(db, targetSymbols);
+      snapshots = replaceFailedFundSnapshotsWithLatest(snapshots, latestSnapshots);
+    }
     const fundItems = (await db.fundWatchlistItem.findMany({
       where: { normalizedSymbol: { in: targetSymbols } },
       select: { id: true, normalizedSymbol: true },
@@ -834,7 +875,7 @@ export async function refreshFunds(symbols?: string[]) {
     const snapshotIdBySymbol = await latestFundSnapshotIdsFromDatabase(db, targetSymbols);
 
     await db.$transaction(
-      snapshots.flatMap((snapshot) => {
+      fundSnapshotsToPersist(snapshots).flatMap((snapshot) => {
         const fundItemId = idBySymbol.get(snapshot.symbol);
         if (!fundItemId) return [];
 
@@ -842,13 +883,13 @@ export async function refreshFunds(symbols?: string[]) {
           fundItemId,
           symbol: snapshot.symbol,
           netValue: snapshot.netValue.toString(),
-          estimateValue: snapshot.estimateValue?.toString(),
+          estimateValue: snapshot.estimateValue?.toString() ?? null,
           changePercent: snapshot.changePercent.toString(),
           currency: snapshot.currency,
           provider: snapshot.provider,
           quoteTime: new Date(snapshot.quoteTime),
-          errorCode: snapshot.errorCode,
-          errorMessage: snapshot.errorMessage,
+          errorCode: snapshot.errorCode ?? null,
+          errorMessage: snapshot.errorMessage ?? null,
         };
         const snapshotId = snapshotIdBySymbol.get(snapshot.symbol);
 
@@ -870,8 +911,11 @@ export async function refreshFunds(symbols?: string[]) {
   const targetSymbols = symbols ?? store.funds.map((item) => item.normalizedSymbol);
   if (!targetSymbols.length) return [];
 
-  const snapshots = await getFundSnapshotsSafely(targetSymbols);
-  for (const snapshot of snapshots) {
+  let snapshots = await getFundSnapshotsSafely(targetSymbols);
+  if (hasFailedFundSnapshots(snapshots)) {
+    snapshots = replaceFailedFundSnapshotsWithLatest(snapshots, getStore().fundSnapshots);
+  }
+  for (const snapshot of fundSnapshotsToPersist(snapshots)) {
     store.fundSnapshots[snapshot.symbol] = snapshot;
   }
   return snapshots;
@@ -879,7 +923,15 @@ export async function refreshFunds(symbols?: string[]) {
 
 export async function getLiveFundSnapshots(symbols: string[]) {
   if (!symbols.length) return [];
-  return getFundSnapshotsSafely(symbols);
+  const snapshots = await getFundSnapshotsSafely(symbols);
+  if (!hasFailedFundSnapshots(snapshots)) return snapshots;
+
+  if (shouldUseDatabase()) {
+    const db = await getPrisma();
+    const latestSnapshots = await latestFundSnapshotsFromDatabase(db, symbols);
+    return replaceFailedFundSnapshotsWithLatest(snapshots, latestSnapshots);
+  }
+  return replaceFailedFundSnapshotsWithLatest(snapshots, getStore().fundSnapshots);
 }
 
 async function getFundSnapshotsSafely(symbols: string[]) {

@@ -90,7 +90,9 @@ export async function marketDataFetch(input: RequestInfo | URL, init?: MarketDat
 
 function withoutRetryOption(init?: MarketDataFetchOptions): RequestInit | undefined {
   if (!init) return undefined;
-  const { proxyOnly: _proxyOnly, retryWithProxy: _retryWithProxy, ...fetchInit } = init;
+  const fetchInit = { ...init };
+  delete fetchInit.proxyOnly;
+  delete fetchInit.retryWithProxy;
   return fetchInit;
 }
 

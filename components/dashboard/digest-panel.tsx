@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { FileText, Mail, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/components/i18n/locale-provider";
 import type { DigestPreview } from "@/lib/domain/types";
-import { dictionary } from "@/lib/i18n";
 import { relativeTime } from "@/lib/utils/format";
 
 export function DigestPanel() {
@@ -13,14 +12,6 @@ export function DigestPanel() {
   const [digest, setDigest] = useState<DigestPreview | null>(null);
   const [status, setStatus] = useState<string>(t.digest.initialStatus);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setStatus((current) =>
-      current === dictionary.zh.digest.initialStatus || current === dictionary.en.digest.initialStatus
-        ? t.digest.initialStatus
-        : current,
-    );
-  }, [t.digest.initialStatus]);
 
   async function previewDigest() {
     setLoading(true);
@@ -34,6 +25,8 @@ export function DigestPanel() {
       }
       setDigest(payload.data);
       setStatus(t.digest.previewReady);
+    } catch {
+      setStatus(t.digest.previewFailed);
     } finally {
       setLoading(false);
     }
@@ -55,6 +48,8 @@ export function DigestPanel() {
       }
       setDigest(payload.digest ?? null);
       setStatus(payload.data?.message ?? t.digest.testSent);
+    } catch {
+      setStatus(t.digest.testFailed);
     } finally {
       setLoading(false);
     }
@@ -76,6 +71,8 @@ export function DigestPanel() {
       }
       setDigest(payload.digest ?? null);
       setStatus(payload.data?.message ?? t.digest.dailyDone);
+    } catch {
+      setStatus(t.digest.dailyFailed);
     } finally {
       setLoading(false);
     }

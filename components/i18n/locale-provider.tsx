@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 import { defaultLocale, dictionary, isLocale, type Dictionary, type Locale } from "@/lib/i18n";
 
 type LocaleContextValue = {
@@ -18,12 +18,11 @@ export function LocaleProvider({
   initialLocale?: Locale;
   children: React.ReactNode;
 }) {
-  const [locale, setLocaleState] = useState<Locale>(initialLocale);
-
-  useEffect(() => {
+  const [locale, setLocaleState] = useState<Locale>(() => {
+    if (typeof window === "undefined") return initialLocale;
     const saved = window.localStorage.getItem("marketpilot-locale");
-    if (isLocale(saved)) setLocaleState(saved);
-  }, []);
+    return isLocale(saved) ? saved : initialLocale;
+  });
 
   const value = useMemo<LocaleContextValue>(
     () => ({

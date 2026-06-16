@@ -10,11 +10,16 @@ import type { FundHolding, FundRow, FundSearchResult, FundSnapshot } from "@/lib
 import { fundDetailUrl } from "@/lib/domain/xueqiu";
 import { cn } from "@/lib/utils/cn";
 import { formatClockTime, formatCurrency, formatPercent } from "@/lib/utils/format";
-import { dictionary, localizedApiMessage } from "@/lib/i18n";
+import { localizedApiMessage } from "@/lib/i18n";
 
 type FundTableProps = {
   initialRows: FundRow[];
 };
+
+function usableSnapshot(snapshot: FundSnapshot | null | undefined) {
+  if (!snapshot || (snapshot.status === "error" && snapshot.netValue <= 0)) return null;
+  return snapshot;
+}
 
 export function FundTable({ initialRows }: FundTableProps) {
   const { locale, t } = useLocale();
@@ -29,6 +34,7 @@ export function FundTable({ initialRows }: FundTableProps) {
   const [selectedRow, setSelectedRow] = useState<FundRow | null>(null);
   const pollingRef = useRef(false);
   const rowsRef = useRef(initialRows);
+  const searchRequestRef = useRef(0);
 
   const filteredRows = useMemo(
     () => rows.filter((row) => (filter === "ALL" ? true : row.type === filter)),
@@ -38,14 +44,6 @@ export function FundTable({ initialRows }: FundTableProps) {
   useEffect(() => {
     rowsRef.current = rows;
   }, [rows]);
-
-  useEffect(() => {
-    setMessage((current) =>
-      current === dictionary[locale === "zh" ? "en" : "zh"].fundTable.initialMessage
-        ? t.fundTable.initialMessage
-        : current,
-    );
-  }, [locale, t.fundTable.initialMessage]);
 
   const mergeSnapshots = useCallback((snapshots: FundSnapshot[]) => {
     const snapshotBySymbol = new Map(snapshots.map((snapshot) => [snapshot.symbol, snapshot]));
@@ -73,12 +71,18 @@ export function FundTable({ initialRows }: FundTableProps) {
       const response = await fetch(`/api/funds/quotes?symbols=${encodeURIComponent(symbols.join(","))}`, {
         cache: "no-store",
       });
-      const payload = (await response.json()) as { data?: FundSnapshot[] };
+      const payload = (await response.json()) as { data?: FundSnapshot[]; error?: { message: string } };
+      if (!response.ok) {
+        setMessage(localizedApiMessage(locale, payload.error?.message, t.fundTable.refreshFailed));
+        return;
+      }
       mergeSnapshots(payload.data ?? []);
+    } catch {
+      setMessage(t.fundTable.refreshFailed);
     } finally {
       pollingRef.current = false;
     }
-  }, [mergeSnapshots]);
+  }, [locale, mergeSnapshots, t.fundTable.refreshFailed]);
 
   const fetchRows = useCallback(async (options?: { showLoading?: boolean; updateMessage?: boolean }) => {
     if (pollingRef.current) return;
@@ -86,20 +90,29 @@ export function FundTable({ initialRows }: FundTableProps) {
     if (options?.showLoading) setLoading(true);
     try {
       const response = await fetch("/api/funds", { cache: "no-store" });
-      const payload = (await response.json()) as { data?: FundRow[] };
+      const payload = (await response.json()) as { data?: FundRow[]; error?: { message: string } };
+      if (!response.ok) {
+        if (options?.updateMessage) {
+          setMessage(localizedApiMessage(locale, payload.error?.message, t.fundTable.refreshFailed));
+        }
+        return;
+      }
       setRows(payload.data ?? []);
       setSelectedRow((current) => {
         if (!current) return null;
         return payload.data?.find((row) => row.id === current.id) ?? null;
       });
       if (options?.updateMessage) setMessage(t.fundTable.refreshed);
+    } catch {
+      if (options?.updateMessage) setMessage(t.fundTable.refreshFailed);
     } finally {
       pollingRef.current = false;
       if (options?.showLoading) setLoading(false);
     }
-  }, [t.fundTable.refreshed]);
+  }, [locale, t.fundTable.refreshed, t.fundTable.refreshFailed]);
 
   useEffect(() => {
+    void fetchSnapshots();
     const interval = window.setInterval(() => {
       void fetchSnapshots();
     }, 30000);
@@ -107,10 +120,14 @@ export function FundTable({ initialRows }: FundTableProps) {
   }, [fetchSnapshots]);
 
   async function searchFunds(value: string) {
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
     setQuery(value);
     setSelectedFund(null);
     if (!value.trim()) {
+      searchRequestRef.current += 1;
       setSuggestions([]);
+      setSearching(false);
       return;
     }
 
@@ -124,10 +141,13 @@ export function FundTable({ initialRows }: FundTableProps) {
         setMessage(localizedApiMessage(locale, payload.error?.message, t.fundTable.searchFailed));
         return;
       }
+      if (requestId !== searchRequestRef.current) return;
       setSuggestions(payload.data ?? []);
       if (!payload.data?.length) setMessage(t.fundTable.noMatch);
+    } catch {
+      if (requestId === searchRequestRef.current) setMessage(t.fundTable.searchFailed);
     } finally {
-      setSearching(false);
+      if (requestId === searchRequestRef.current) setSearching(false);
     }
   }
 
@@ -286,7 +306,7 @@ export function FundTable({ initialRows }: FundTableProps) {
             </thead>
             <tbody>
               {filteredRows.map((row) => {
-                const snapshot = row.snapshot;
+                const snapshot = usableSnapshot(row.snapshot);
                 return (
                   <tr
                     key={row.id}
@@ -372,7 +392,7 @@ function FundDetailDrawer({
   onClose: () => void;
 }) {
   const { locale, t } = useLocale();
-  const snapshot = row.snapshot;
+  const snapshot = usableSnapshot(row.snapshot);
   const [holdingsState, setHoldingsState] = useState<{
     holdings: FundHolding[];
     status: string;

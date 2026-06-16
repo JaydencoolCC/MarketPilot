@@ -15,6 +15,7 @@ export function hasStockHolding(row: Pick<WatchlistRow, "costPrice" | "shares">)
 
 export function calculateStockHolding(row: WatchlistRow): StockHoldingMetrics | null {
   if (!row.quote || !hasStockHolding(row)) return null;
+  if (row.quote.status === "error" && row.quote.price <= 0) return null;
 
   const costValue = row.costPrice! * row.shares!;
   const marketValue = row.quote.price * row.shares!;

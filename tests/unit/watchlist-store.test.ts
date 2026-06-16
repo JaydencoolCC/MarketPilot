@@ -124,8 +124,37 @@ describe("watchlist store", () => {
     const [row] = await listWatchlistRows();
 
     expect(row?.normalizedSymbol).toBe("AAPL.US");
-    expect(row?.dataStatus).toBe("error");
-    expect(row?.quote?.errorMessage).toContain("行情暂时不可用");
+    expect(row?.dataStatus).toBe("stale");
+    expect(row?.quote).toBeNull();
+  });
+
+  it("marks failed quotes without prior data as unavailable instead of usable zero prices", async () => {
+    process.env.QUOTE_PROVIDER = "unavailable";
+
+    await addWatchlistItem({ symbol: "AAPL.US" });
+    const [liveQuote] = await getLiveQuotes(["AAPL.US"]);
+
+    expect(liveQuote).toMatchObject({
+      symbol: "AAPL.US",
+      status: "error",
+      price: 0,
+      errorCode: "PROVIDER_UNAVAILABLE",
+    });
+    expect(calculateStockHolding({
+      id: "holding-test",
+      symbol: "AAPL",
+      normalizedSymbol: "AAPL.US",
+      market: "US",
+      name: "Apple",
+      currency: "USD",
+      costPrice: 200,
+      shares: 2,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      quote: null,
+      todayNewsCount: 0,
+      dataStatus: "error",
+    })).toBeNull();
   });
 
   it("does not replace a successful quote snapshot with a transient provider failure", async () => {

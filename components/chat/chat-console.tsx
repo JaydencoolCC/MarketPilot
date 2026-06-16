@@ -38,14 +38,6 @@ export function ChatConsole() {
     };
   }, []);
 
-  useEffect(() => {
-    setMessages((current) =>
-      current.map((message) =>
-        message.id === "welcome" ? { ...message, content: t.chat.welcome } : message,
-      ),
-    );
-  }, [t.chat.welcome]);
-
   async function sendMessage(text = input) {
     const content = text.trim();
     if (!content) return;
@@ -185,9 +177,9 @@ export function ChatConsole() {
                   : "border border-line bg-surface/70 text-ink",
               )}
             >
-              {message.content ? (
+              {(message.id === "welcome" ? t.chat.welcome : message.content) ? (
                 message.role === "assistant" ? (
-                  <MarkdownMessage content={message.content} />
+                  <MarkdownMessage content={message.id === "welcome" ? t.chat.welcome : message.content} />
                 ) : (
                   <p className="whitespace-pre-wrap">{message.content}</p>
                 )

@@ -11,13 +11,18 @@ import type { Market, NewsArticle, Quote, Security, WatchlistRow } from "@/lib/d
 import { stockDetailUrl } from "@/lib/domain/xueqiu";
 import { formatClockTime, formatCurrency, formatPercent, relativeTime } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
-import { dictionary, localizedApiMessage } from "@/lib/i18n";
+import { localizedApiMessage } from "@/lib/i18n";
 
 type StockTableProps = {
   initialRows: WatchlistRow[];
 };
 
 const QUOTE_POLL_INTERVAL_MS = 3000;
+
+function usableQuote(quote: Quote | null | undefined) {
+  if (!quote || (quote.status === "error" && quote.price <= 0)) return null;
+  return quote;
+}
 
 function changeColorClass(changePercent?: number) {
   if (!changePercent) return "text-muted";
@@ -44,6 +49,7 @@ export function StockTable({ initialRows }: StockTableProps) {
   const pollingRef = useRef(false);
   const pendingManualRefreshRef = useRef(false);
   const rowsRef = useRef(initialRows);
+  const searchRequestRef = useRef(0);
 
   const filteredRows = useMemo(
     () => rows.filter((row) => (filter === "ALL" ? true : row.market === filter)),
@@ -62,14 +68,6 @@ export function StockTable({ initialRows }: StockTableProps) {
   useEffect(() => {
     rowsRef.current = rows;
   }, [rows]);
-
-  useEffect(() => {
-    setMessage((current) =>
-      current === dictionary[locale === "zh" ? "en" : "zh"].stockTable.initialMessage
-        ? t.stockTable.initialMessage
-        : current,
-    );
-  }, [locale, t.stockTable.initialMessage]);
 
   const mergeQuotes = useCallback((quotes: Quote[]) => {
     const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
@@ -102,9 +100,19 @@ export function StockTable({ initialRows }: StockTableProps) {
       const response = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbols.join(","))}`, {
         cache: "no-store",
       });
-      const payload = (await response.json()) as { data?: Quote[] };
+      const payload = (await response.json()) as { data?: Quote[]; error?: { message: string } };
+      if (!response.ok) {
+        if (options?.updateMessage) {
+          setMessage(localizedApiMessage(locale, payload.error?.message, t.stockTable.refreshFailed));
+        }
+        return;
+      }
       mergeQuotes(payload.data ?? []);
       if (options?.updateMessage) setMessage(t.stockTable.refreshed);
+    } catch (error) {
+      if (options?.updateMessage) {
+        setMessage(error instanceof Error ? error.message : t.stockTable.refreshFailed);
+      }
     } finally {
       pollingRef.current = false;
       if (options?.showLoading) setLoading(false);
@@ -113,7 +121,7 @@ export function StockTable({ initialRows }: StockTableProps) {
         void fetchQuotes({ showLoading: true, updateMessage: true });
       }
     }
-  }, [mergeQuotes, t.stockTable.refreshed]);
+  }, [locale, mergeQuotes, t.stockTable.refreshed, t.stockTable.refreshFailed]);
 
   useEffect(() => {
     void fetchQuotes();
@@ -164,6 +172,8 @@ export function StockTable({ initialRows }: StockTableProps) {
   }
 
   async function fetchSecuritySuggestions(value: string, marketFilter: Market | "ALL") {
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
     setSearching(true);
     try {
       const params = new URLSearchParams({ q: value });
@@ -176,12 +186,17 @@ export function StockTable({ initialRows }: StockTableProps) {
         setMessage(localizedApiMessage(locale, payload.error?.message, t.stockTable.searchFailed));
         return;
       }
+      if (requestId !== searchRequestRef.current) return;
       setSuggestions(payload.data ?? []);
       if (!payload.data?.length) {
         setMessage(t.stockTable.noMatch);
       }
+    } catch (error) {
+      if (requestId === searchRequestRef.current) {
+        setMessage(error instanceof Error ? error.message : t.stockTable.searchFailed);
+      }
     } finally {
-      setSearching(false);
+      if (requestId === searchRequestRef.current) setSearching(false);
     }
   }
 
@@ -189,7 +204,9 @@ export function StockTable({ initialRows }: StockTableProps) {
     setQuery(value);
     setSelectedSecurity(null);
     if (!value.trim()) {
+      searchRequestRef.current += 1;
       setSuggestions([]);
+      setSearching(false);
       return;
     }
 
@@ -334,7 +351,7 @@ export function StockTable({ initialRows }: StockTableProps) {
             </thead>
             <tbody>
               {filteredRows.map((row) => {
-                const quote = row.quote;
+                const quote = usableQuote(row.quote);
                 return (
                   <tr
                     key={row.id}
@@ -433,7 +450,7 @@ function StockDetailDrawer({
   onClose: () => void;
 }) {
   const { locale, t } = useLocale();
-  const quote = row.quote;
+  const quote = usableQuote(row.quote);
   const question = t.stockTable.askQuestion(row.name);
   const [articles, setArticles] = useState<NewsArticle[]>([]);
   const [newsStatus, setNewsStatus] = useState(t.stockTable.drawer.loadingNews);
