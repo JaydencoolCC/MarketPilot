@@ -1,62 +1,39 @@
-<table>
-  <tr>
-    <td width="44">
-      <img src="public/brand/marketpilot-icon.png" alt="MarketPilot" width="36" />
-    </td>
-    <td>
-      <h1>MarketPilot — Personal AI Finance Workspace</h1>
-    </td>
-  </tr>
-</table>
+# MarketPilot
 
+<p>
+  <img src="public/brand/marketpilot-icon.png" alt="MarketPilot" width="40" />
+</p>
 
+MarketPilot is a personal finance workspace for following the markets I actually care about. It keeps my watchlist, quote snapshots, holdings, funds, gold prices, daily email digest, and AI-assisted research questions in one place.
+
+It is built for a simple daily routine: open the dashboard, see what changed, check the relevant news, and ask follow-up questions when something deserves a closer look.
 
 ![MarketPilot dashboard](public/brand/marketpilot-dashboard.png)
 
-**A calm AI workspace for your market watchlist.** MarketPilot turns prices, news, holdings, daily digests, and AI follow-up questions into one source-aware research flow.
+## Main Features
 
+- Watchlist-first dashboard for stocks, holdings, funds, and gold.
+- Quote snapshots with price, change, market status, freshness, and data source.
+- Stock holding records with floating P&L based on the latest available quote.
+- Daily market digest preview and SMTP email delivery.
+- AI chat grounded in the current watchlist, quote snapshots, and recent news.
+- Configurable quote, news, model, and email providers.
 
-## The Daily Market Loop
+## Design Scop
 
-1. Track the watchlist you actually care about.
-2. Read what changed across prices, market status, and related news.
-3. Review a daily digest before it lands in your inbox.
-4. Ask follow-up questions when a move deserves a closer look.
+MarketPilot is not a broker, trading terminal, or high-frequency market data system. It does not place orders, connect to brokerage accounts, or make deterministic buy/sell calls. The app is meant to help with personal market review and source-aware research. It should make information easier to scan and question, not replace trading.
 
-## Highlights
+## Local Setup
 
-| Focus | How MarketPilot helps |
-| --- | --- |
-| Watchlist-first dashboard | Keep stocks, funds, holdings, and gold in a focused daily workspace. |
-| Source-aware quotes | See price, change, market status, data freshness, and provider source together. |
-| Daily digest workflow | Preview key market highlights and send them through real SMTP email delivery. |
-| Research assistant | Ask AI follow-up questions grounded in your watchlist, quote snapshots, and recent news. |
-| Personal holdings view | Record positions and follow floating P&L without turning the app into a trading terminal. |
-| Provider control | Configure quote, news, model, and email providers from your own environment. |
-
-## Why It Exists
-
-Market research often starts in one place and ends in five others: quotes in an app, news in a feed, positions in a spreadsheet, summaries in email, and follow-up questions in a chat window.
-
-MarketPilot brings that loop into a single personal workspace. It is designed to make daily market context easier to scan, easier to question, and easier to trace back to its source.
-
-## What MarketPilot Is Not
-
-- Not a trading brokerage.
-- Not a high-frequency real-time market data system.
-- Not deterministic financial advice.
-
-## Run MarketPilot Locally
-
-The commands below target Ubuntu/Debian Linux. They create the required `trade` conda environment first, then install locked Node dependencies and prepare PostgreSQL.
+Create the conda environment and install Node dependencies:
 
 ```bash
-conda create -y -n trade -c conda-forge nodejs=20
+conda env create -f environment.yml
 conda run -n trade npm ci
 cp .env.example .env
 ```
 
-Prepare a local PostgreSQL database:
+Prepare a local PostgreSQL database. On Ubuntu/Debian, one straightforward option is:
 
 ```bash
 sudo apt update
@@ -66,13 +43,13 @@ sudo -u postgres psql -c "CREATE ROLE trade LOGIN PASSWORD 'trade' CREATEDB;"
 sudo -u postgres createdb -O trade trade
 ```
 
-Set the database URL in `.env`:
+Set `DATABASE_URL` in `.env`:
 
 ```bash
-sed -i 's#^DATABASE_URL=.*#DATABASE_URL="postgresql://trade:trade@127.0.0.1:5432/trade?schema=public"#' .env
+DATABASE_URL="postgresql://trade:trade@127.0.0.1:5432/trade?schema=public"
 ```
 
-Generate Prisma client, apply existing migrations, and start the development server:
+Generate the Prisma client, apply migrations, and start the dev server:
 
 ```bash
 set -a
@@ -86,18 +63,11 @@ conda run --no-capture-output -n trade npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-For production startup, fill `.env` with real provider values and run:
+## Configuration
 
-```bash
-chmod +x scripts/start-production.sh
-./scripts/start-production.sh
-```
+Start from `.env.example`, then fill in the providers you want to use.
 
-## Configure Providers
-
-Copy `.env.example` to `.env`, then fill in the providers you want to use.
-
-| Area | Environment variables | Notes |
+| Area | Variables | Notes |
 | --- | --- | --- |
 | Database | `DATABASE_URL` | PostgreSQL connection string used by Prisma. |
 | Quotes | `QUOTE_PROVIDER`, `LONGPORT_APP_KEY`, `LONGPORT_APP_SECRET`, `LONGPORT_ACCESS_TOKEN` | `auto` can use public quote providers; Longbridge credentials are optional. |
@@ -106,21 +76,22 @@ Copy `.env.example` to `.env`, then fill in the providers you want to use.
 | Email | `EMAIL_PROVIDER`, `SMTP_URL`, `EMAIL_FROM` | Required for real daily digest delivery. |
 | App | `APP_TIMEZONE` | Defaults to `Asia/Shanghai`. |
 
-## Project Status
+Runtime secrets and local state should stay out of Git:
 
-MarketPilot is an open-source personal finance workspace, actively evolving around watchlist research, real data providers, daily summaries, and AI-assisted review.
+- `.env`
+- `.env.local`
+- `.local/`
 
-It is not intended for trading execution, brokerage connectivity, high-frequency real-time data, or deterministic financial advice.
+## Production
 
-<!-- ## Star History
+For production startup, fill `.env` with real provider values and run:
 
-<a href="https://www.star-history.com/#JaydencoolCC/MarketPilot&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=JaydencoolCC/MarketPilot&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=JaydencoolCC/MarketPilot&type=Date" />
-    <img alt="MarketPilot star history" src="https://api.star-history.com/svg?repos=JaydencoolCC/MarketPilot&type=Date" />
-  </picture>
-</a> -->
+```bash
+chmod +x scripts/start-production.sh
+./scripts/start-production.sh
+```
+
+The startup script installs dependencies, generates the Prisma client, applies migrations, builds the app, and starts the Next.js server.
 
 ## License
 

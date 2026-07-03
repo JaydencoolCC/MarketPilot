@@ -1,0 +1,8 @@
+name: trade
+channels:
+  - conda-forge
+dependencies:
+  - nodejs=20
+  - postgresql=16
+  - ca-certificates
+  - openssl
