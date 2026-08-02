@@ -83,7 +83,7 @@ Runtime secrets and local state should stay out of Git:
 - `.env.local`
 - `.local/`
 
-## Get started
+## Getting Started
 
 For production startup, fill `.env` with real provider values and run:
 
