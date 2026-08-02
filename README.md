@@ -10,20 +10,21 @@ It is built for a simple daily routine: open the dashboard, see what changed, ch
 
 ![MarketPilot dashboard](public/brand/marketpilot-dashboard.png)
 
-## Main Features
+## Features
 
 - Watchlist-first dashboard for stocks, holdings, funds, and gold.
 - Quote snapshots with price, change, market status, freshness, and data source.
 - Stock holding records with floating P&L based on the latest available quote.
 - Daily market digest preview and SMTP email delivery.
-- AI chat grounded in the current watchlist, quote snapshots, and recent news.
+- AI chat is grounded in the current watchlist, quote snapshots, and recent news.
 - Configurable quote, news, model, and email providers.
 
-## Design Scop
+## Application Positioning
 
-MarketPilot is not a broker, trading terminal, or high-frequency market data system. It does not place orders, connect to brokerage accounts, or make deterministic buy/sell calls. The app is meant to help with personal market review and source-aware research. It should make information easier to scan and question, not replace trading.
+MarketPilot is not a brokerage platform, trading terminal, or high-frequency market data system. It does not execute orders, connect to brokerage accounts, or provide decisive recommendations to buy or sell assets. The application is designed to support personal market review and research grounded in traceable sources. Its purpose is to make market information easier to examine and critically evaluate, rather than to automate or replace trading.
 
-## Local Setup
+
+## Setup
 
 Create the conda environment and install Node dependencies:
 
@@ -82,7 +83,7 @@ Runtime secrets and local state should stay out of Git:
 - `.env.local`
 - `.local/`
 
-## Production
+## Get started
 
 For production startup, fill `.env` with real provider values and run:
 
